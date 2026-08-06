@@ -67,15 +67,15 @@ local function draw_gui(player,core_dict)
     return
   end
 
-  if player.gui.screen.bpio_menu then
-    player.gui.screen.bpio_menu.destroy()
+  if player.gui.screen["bpio-menu"] then
+    player.gui.screen["bpio-menu"].destroy()
   end
 
   local gui = {}
   gui.master = player.gui.screen.add
   {
     type = "frame",
-    name = "bpio_menu",
+    name = "bpio-menu",
     caption = { "gui-element.gui-title" },
     style = "inset_frame_container_frame",
     direction = "vertical"
@@ -95,15 +95,14 @@ local function draw_gui(player,core_dict)
   gui.panes.player.frame = gui.pane_space.add
   {
     type = "frame",
-    name = "player_frame",
     style = "inside_shallow_frame_with_padding",
     direction = "vertical"
   }
   gui.panes.player.flow = gui.panes.player.frame.add
   {
     type = "flow",
-    direction = "vertical",
-    style = "two_module_spacing_vertical_flow"
+    style = "two_module_spacing_vertical_flow",
+    direction = "vertical"
   }
   gui.panes.player.label = gui.panes.player.flow.add
   {
@@ -123,7 +122,6 @@ local function draw_gui(player,core_dict)
   gui.panes.control.frame = gui.pane_space.add
   {
     type = "frame",
-    name = "bpio-control",
     style = "inside_shallow_frame_with_padding",
     direction = "vertical"
   }
@@ -177,7 +175,6 @@ local function draw_gui(player,core_dict)
   gui.panes.inventories.frame = gui.pane_space.add
   {
     type = "frame",
-    name = "mod_inventory_frame",
     style = "inside_shallow_frame_with_padding",
     direction = "vertical"
   }
@@ -243,14 +240,8 @@ local kl = require("__klib__.runtime_stage")
 --==========================
 
 local function init_storage()
-  storage.coreDictionaries = {}
-  storage.coreQueue = {}
-
-  storage.surfaceDictionary = {}
-  storage.surfaceQueue = {}
-  storage.surfaceStatus = nil
-
-  storage.player_gui_opened = {}
+  storage.dictionary = { surface = {}, core = {}, player = {} }
+  storage.queue = { surface = {}, core = {} }
 end
 
 script.on_init(function()
@@ -301,7 +292,7 @@ local function on_bpio_created(event)
   
   local id = core.unit_number
 
-  storage.coreDictionaries[id] = 
+  storage.dictionary.core[id] = 
   {
     id=id,
     state="off",
@@ -330,16 +321,21 @@ script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
 --=========================
 
 script.on_event(defines.events.on_gui_opened, function(event)
-  local valid = event.gui_type == defines.gui_type.entity and
-                event.entity and event.entity.name and event.entity.name == "bpio-core"
-  if not valid then return end
+  local entity = event.entity
+  if not 
+  ( event.gui_type == defines.gui_type.entity and entity ~= nil and
+    entity.name and entity.name == "bpio-core" ) 
+  then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
 
-  local eid = event.entity.unit_number
-  draw_gui(player, storage.coreDictionaries[eid])
-  storage.player_gui_opened[player.index]=eid
+  local id = entity.unit_number
+  local dicts = storage.dictionary
+  if not dicts then return end
+
+  draw_gui(player, dicts.core[id])
+  dicts.player[player.index]=id
 end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
@@ -349,17 +345,19 @@ script.on_event(defines.events.on_gui_closed, function(event)
   if not player then return end
   
   event.element.destroy()
-  storage.player_gui_opened[player.index]=nil
+  storage.dictionary.player[player.index]=nil
 end)
 
 script.on_event(defines.events.on_player_controller_changed, function(event)
   local player = game.get_player(event.player_index)
   if not player then return end
 
-  if storage.player_gui_opened[player.index] == nil then return end
+  local dicts = storage.dictionary
+  if not (dicts) then return end
+  if dicts.player[player.index] == nil then return end
 
-  local eid = storage.player_gui_opened[player.index]
-  draw_gui(player, storage.coreDictionaries[eid])
+  local id = dicts.player[player.index]
+  draw_gui(player, dicts.core[id])
 end)
 
 
@@ -370,90 +368,105 @@ end)
 
 script.on_event(defines.events.on_gui_click, function(event)
   if event.element.name ~= "bpio-simulate" then return end
+
   local player = game.get_player(event.player_index)
   if player == nil then
     return
   end
   local force = player.force
 
-  local coreDictionary = storage.coreDictionaries[storage.player_gui_opened[player.index]]
-  if not is_valid_core(coreDictionary,"both") then
-    force.print("Invalid Core")
+  local dicts = storage.dictionary
+  if dicts.surface ~= nil then
+    force.print("Another blueprint core is processing. Wait until it finishes.")
     return
   end
 
-  local bp_slot = coreDictionary.inventories.blueprint[1]
+  local id = dicts.player[player.index]
+  ---@type coreDict
+  local core = dicts.core[id]
+  if not is_valid_core(core,"both") then
+    force.print("Invalid core")
+    return
+  end
+
+  local bp_slot = core.inventories.blueprint[1]
   if not (bp_slot and bp_slot.valid and bp_slot.valid_for_read and bp_slot.is_blueprint and bp_slot.is_blueprint_setup()) then
-    force.print("Invalid Blueprint Slot")
+    force.print("Invalid blueprint slot")
     return
   end
 
-  local dimensions = bp_slot.blueprint_snap_to_grid
-  if dimensions == nil then
-    force.print("Check snap to grid - absolute - in blueprint")
+  local size = bp_slot.blueprint_snap_to_grid
+  if size == nil then
+    force.print("Blueprint needs to have snapping enabled")
     return
   end
 
-  if storage.surfaceQueue ~= nil then
-    force.print("Another core is processing. Wait until it finishes.")
-    return
+  local surface = dicts.surface
+  surface.force=force
+  surface.core=core
+  surface.size=size
+  surface.properties = {}
+
+  local source_surface = core.entities.core.surface
+  for name,property in pairs(prototypes.surface_property) do
+    surface.properties[name] = source_surface.get_property(property)
   end
 
-  local surface_occupants = storage.scratchpad.find_entities_filtered{limit=1}
-  
-  if #surface_occupants > 0 then
-    force.print("There's entities still inside the core. This is a serious bug.")
-    return
-  end
-  
-  local ghosts = bp_slot.build_blueprint{surface="bpio-scratchpad",force="bpio",position={0,0},build_mode=defines.build_mode.superforced}
-
-  if not ghosts or #ghosts == 0 then
-    force.print("Blueprint failed to generate ghosts.")
-    return
-  end
-
-  local clock = event.tick
-  local surfaceQueue = {}
-  local end_time = clock+10+600*6
-  local time = clock+10
-  while time < end_time do
-    time = time+1
-    surfaceQueue[time] = "log"
-  end
-
-  surfaceQueue[clock+6]="ghost_builds"
-  surfaceQueue[clock+8]="end_ghost_builds"
-  surfaceQueue[clock+10]="begin_log"
-  surfaceQueue[clock+10+600*1]="summarize"
-  surfaceQueue[clock+10+600*2]="summarize"
-  surfaceQueue[clock+10+600*3]="summarize"
-  surfaceQueue[clock+10+600*4]="summarize"
-  surfaceQueue[clock+10+600*5]="summarize"
-  surfaceQueue[clock+10+600*6]="summarize"
-  surfaceQueue[clock+10+600*6+2]="end_log"
-  surfaceQueue[clock+10+600*6+4]="cleanup"
-  surfaceQueue[clock+10+600*6+6]="generate"
-  surfaceQueue[clock+10+600*6+8]="force_generate"
-
-  storage.surfaceQueue = surfaceQueue
-  storage.ghosts = ghosts
+  surface.status = "create"
+  storage.queue.surface[event.tick+5]=id
 end)
 
 
 
---==================
---===== Queues =====
---==================
+--====================
+--===== Queueing =====
+--====================
 
 local function on_tick(event)
   local clock = event.tick
+  
+  local queues = storage.queue
+  if queues == nil then return end
 
-  if storage.surfaceQueue == nil then
-    return
+  local core_now = queues.core[clock]
+  local surface_now = queues.surface[clock]
+  if not core_now and not surface_now then return end
+  local dicts = storage.dictionary
+  
+  if surface_now then
+    local surface = dicts.surface[surface_now]
+    if surface.status == "create" then
+      surface.lua = game.create_surface("bpio-scratchpad",{width=surface.size.x,height=surface.size.y})
+      surface.lua.generate_with_lab_tiles = true
+      surface.status = "queue_chunks"
+      queues.surface[clock+5] = surface_now
+      surface.force.print("Created surface")
+    end
+    if surface.status == "queue_chunks" then
+      surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(surface.size.x/32),math.ceil(surface.size.y/32)))
+      surface.status = "finish_chunks"
+      queues.surface[clock+5] = surface_now
+      surface.force.print("Queued chunks")
+    end
+    if surface.status == "finish_chunks" then
+      surface.lua.force_generate_chunks_requests()
+      surface.status = "build_ghosts"
+      queues.surface[clock+5] = surface_now
+      surface.force.print("Finished chunks")
+    end
+    if surface.status == "build_ghosts" then
+      local blueprint = surface.core.inventories.blueprint[1]
+      local ghosts = blueprint.build_blueprint{surface=surface.lua}
+      surface.lua.force_generate_chunks_requests()
+      surface.status = "build_ghosts"
+      queues.surface[clock+5] = surface_now
+      surface.force.print("Finished chunks")
+    end
   end
 
-  local surfacePending = storage.surfaceQueue[clock]
+
+
+  local surfacePending = storage.queue.surface[clock]
   if surfacePending == nil then
     return
   end
@@ -484,7 +497,7 @@ local function on_tick(event)
   
   if surfacePending == "force_generate" then
     storage.scratchpad.force_generate_chunk_requests()
-    storage.surfaceQueue=nil
+    storage.surface_queue=nil
   end
 
 end
