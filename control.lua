@@ -2,7 +2,7 @@
 --===== Library =====
 --===================
 
---======Types
+--===== Types
 
 ---@class coreEntities
 ---@field core LuaEntity The core entity with the controlling GUI
@@ -25,7 +25,7 @@
 
 
 
---=========================Functions for cores
+--===== Functions for cores
 
 ---@param dict coreDict
 ---@param mode "entities"|"inventories"|"both"
@@ -56,7 +56,9 @@ local function core_destroy(dict)
   dict.entities.core.die()
 end
 
---=========================GUI
+
+
+--===== Functions for GUI
 
 local function draw_gui(player,core_dict)
   local valid = is_valid_core(core_dict,"both")
@@ -236,7 +238,9 @@ end
 
 local kl = require("__klib__.runtime_stage")
 
---- Initialize the storage. If settings change, reorganize the Queues.
+--==========================
+--===== Initialization =====
+--==========================
 
 local function init_storage()
   storage.coreDictionaries = {}
@@ -246,7 +250,7 @@ local function init_storage()
   storage.surfaceQueue = {}
   storage.surfaceStatus = nil
 
-  storage.player_gui_info = {}
+  storage.player_gui_opened = {}
 end
 
 script.on_init(function()
@@ -260,9 +264,9 @@ end
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 
-
-
---- Build our compound entity
+--====================
+--===== Building =====
+--====================
 
 local function on_bpio_created(event)
   if event.effect_id ~= "bpio-built-event" then return end
@@ -321,8 +325,9 @@ script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
 
 
 
-
---- GUI 
+--=========================
+--===== GUI Lifecycle =====
+--=========================
 
 script.on_event(defines.events.on_gui_opened, function(event)
   local valid = event.gui_type == defines.gui_type.entity and
@@ -334,7 +339,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 
   local eid = event.entity.unit_number
   draw_gui(player, storage.coreDictionaries[eid])
-  storage.player_gui_info[player.index]=eid
+  storage.player_gui_opened[player.index]=eid
 end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
@@ -344,19 +349,24 @@ script.on_event(defines.events.on_gui_closed, function(event)
   if not player then return end
   
   event.element.destroy()
-  storage.player_gui_info[player.index]=nil
+  storage.player_gui_opened[player.index]=nil
 end)
 
 script.on_event(defines.events.on_player_controller_changed, function(event)
   local player = game.get_player(event.player_index)
   if not player then return end
 
-  if storage.player_gui_info[player.index] == nil then return end
+  if storage.player_gui_opened[player.index] == nil then return end
 
-  local eid = storage.player_gui_info[player.index]
+  local eid = storage.player_gui_opened[player.index]
   draw_gui(player, storage.coreDictionaries[eid])
 end)
 
+
+
+--=======================
+--===== GUI Actions =====
+--=======================
 
 script.on_event(defines.events.on_gui_click, function(event)
   if event.element.name ~= "bpio-simulate" then return end
@@ -366,7 +376,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   end
   local force = player.force
 
-  local coreDictionary = storage.coreDictionaries[storage.player_gui_info[player.index]]
+  local coreDictionary = storage.coreDictionaries[storage.player_gui_opened[player.index]]
   if not is_valid_core(coreDictionary,"both") then
     force.print("Invalid Core")
     return
@@ -430,7 +440,12 @@ script.on_event(defines.events.on_gui_click, function(event)
   storage.ghosts = ghosts
 end)
 
---- Update our entities
+
+
+--==================
+--===== Queues =====
+--==================
+
 local function on_tick(event)
   local clock = event.tick
 
@@ -473,7 +488,5 @@ local function on_tick(event)
   end
 
 end
-
-
 
 script.on_event(defines.events.on_tick, on_tick)
