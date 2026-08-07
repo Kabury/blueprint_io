@@ -20,11 +20,15 @@ local scale=48/32
 local height=127
 local width=156
 local shift={1.5,0.25}
+local inv_type = "with_custom_stack_size"
+local inv_size = 5
+local inv_prop = {stack_size_multiplier=100,with_bar=true}
 
 local bpio_core =
 {
   name="bpio-core",
   created_effect=created_eff,
+  minable={result="bpio-core"},
   inventory_size=0,
   picture=
   {
@@ -37,8 +41,9 @@ local bpio_core =
 local bpio_input =
 {
   name="bpio-input",
-  inventory_type="with_filters_and_bar",
-  inventory_size=5,
+  inventory_type=inv_type,
+  inventory_size=inv_size,
+  inventory_properties=inv_prop,
   picture=
   {
     layers=
@@ -50,8 +55,39 @@ local bpio_input =
 local bpio_output =
 {
   name="bpio-output",
-  inventory_type="with_filters_and_bar",
-  inventory_size=5,
+  inventory_type=inv_type,
+  inventory_size=inv_size,
+  inventory_properties=inv_prop,
+  picture=
+  {
+    layers=
+    {
+      [1]={filename="__blueprint_io__/graphics/entity/output_market.png",height=height,width=width,scale=scale,shift=shift}
+    }
+  }
+}
+local bpio_input_watcher =
+{
+  name="bpio-input-watcher",
+  minable={result="bpio-input-watcher"},
+  inventory_type=inv_type,
+  inventory_size=inv_size,
+  inventory_properties=inv_prop,
+  picture=
+  {
+    layers=
+    {
+      [1]={filename="__blueprint_io__/graphics/entity/input_market.png",height=height,width=width,scale=scale,shift=shift}
+    }
+  }
+}
+local bpio_output_watcher =
+{
+  name="bpio-output-watcher",
+  minable={result="bpio-output-watcher"},
+  inventory_type=inv_type,
+  inventory_size=inv_size,
+  inventory_properties=inv_prop,
   picture=
   {
     layers=
@@ -61,13 +97,15 @@ local bpio_output =
   }
 }
 
-
 bpio_core = meld.meld(bpio_core,boxes)
 bpio_input = meld.meld(bpio_input,boxes)
 bpio_output = meld.meld(bpio_output,boxes)
+bpio_input_watcher = meld.meld(bpio_input_watcher,boxes)
+bpio_output_watcher = meld.meld(bpio_output_watcher,boxes)
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_core)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_input)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_output)})
-
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_input_watcher)})
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_output_watcher)})
 

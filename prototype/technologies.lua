@@ -5,7 +5,9 @@ data:extend(
     name = "blueprint-io",
     effects = 
     {
-      { type = "unlock-recipe", recipe = "bpio-core" }
+      { type = "unlock-recipe", recipe = "bpio-core" },
+      { type = "unlock-recipe", recipe = "bpio-input-watcher" },
+      { type = "unlock-recipe", recipe = "bpio-output-watcher" }
     },
     icons = 
     {

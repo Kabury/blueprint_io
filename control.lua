@@ -29,6 +29,8 @@
 ---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
 ---@field size TilePosition Size of the blueprint
 ---@field ghosts LuaEntity[] The ghosts we build
+---@field progress double How much has the surface ran
+---@field progress_bars LuaGuiElement[] The progress bar
 
 ---@alias playerID uint32
 
@@ -73,6 +75,8 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 --===================
 --===== Library =====
 --===================
+
+local TILE_RESOLUTION = 32
 
 local kl = require("__klib__.runtime_stage")
 
@@ -133,13 +137,23 @@ end
 local function surface_destroy(dict)
   game.delete_surface("bpio-surface")
   game.merge_forces("bpio-force",dict.building_force)
-  dict.building_force = nil
-  dict.force = nil
+  local core = dict.core
+  local building_inventory = core.inventories.building
+  for _,item_format in pairs(core.cost) do
+    building_inventory.insert(item_format)
+  end
+  local force= core.entities.core.force --[[@as LuaForce]]
+  force.print("Refunded buildings")
   dict.core = nil
-  dict.size = nil
-  dict.properties = nil
   dict.status = nil
   dict.lua = nil
+  dict.force = nil
+  dict.building_force = nil
+  dict.properties = nil
+  dict.size = nil
+  dict.ghosts = nil
+  dict.progress = nil
+  dict.progress_bars = nil
   storage.queue.surface = {}
 end
 
@@ -159,16 +173,14 @@ local function draw_gui(player,core_dict)
   end
 
   local gui = {}
-  gui.master = player.gui.screen.add
-  {
+  gui.master = player.gui.screen.add{
     type = "frame",
     name = "bpio-menu",
     caption = { "gui-element.gui-title" },
     style = "inset_frame_container_frame",
     direction = "vertical"
   }
-  gui.pane_space = gui.master.add
-  {
+  gui.pane_space = gui.master.add{
     type="flow",
     direction="horizontal"
   }
@@ -179,77 +191,81 @@ local function draw_gui(player,core_dict)
 
   if core_dict.state == "booting" then
     gui.panes.booting = {} 
-    gui.panes.booting.frame = gui.pane_space.add
-    {
+    gui.panes.booting.frame = gui.pane_space.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.booting.label = gui.panes.booting.frame.add
-    {
+    gui.panes.booting.label = gui.panes.booting.frame.add{
       type = "label",
       caption = {"gui-element.booting-label"},
       style = "frame_title"
     }
-    gui.panes.booting.surface_label = gui.panes.booting.frame.add
-    {
+    gui.panes.booting.surface_label = gui.panes.booting.frame.add{
       type = "label",
       caption = {"gui-element.booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
-    gui.panes.booting.preview_frame = gui.panes.booting.frame.add
-    {
+    gui.panes.booting.preview_frame = gui.panes.booting.frame.add{
       type = "frame",
       style = "deep_frame_in_shallow_frame"
     }
-    local bpio_surface = game.surfaces["bpio-surface"]
 
-    if bpio_surface ~=nil then
-      local bpio_size = storage.dictionary.surface.size
-      local res = player.display_resolution 
-      local resy = res.height - 300
-      local resx = res.width - 300
-
-      local tile_size = 32
-      local zoom_x = (resx-50) / (bpio_size.x * tile_size)
-      local zoom_y = (resy-50) / (bpio_size.y * tile_size)
-      local target_zoom = math.min(zoom_x, zoom_y)
-
-      gui.panes.booting.bpio_surface = gui.panes.booting.frame.add
-      {
-        type = "camera",
-        position = {0,0},
-        surface_index = bpio_surface.index,
-        zoom = target_zoom
-      }
-      
-      gui.panes.booting.bpio_surface.style.natural_height = resy
-      gui.panes.booting.bpio_surface.style.natural_width = resx
+    ---@type surfaceDict
+    local surface = storage.dictionary.surface
+    local res = player.display_resolution 
+    local target_zoom
+    if surface.size.x and surface.size.y then 
+      local zoom_x = (res.width-350) / (surface.size.x * TILE_RESOLUTION)
+      local zoom_y = (res.height-350) / (surface.size.y * TILE_RESOLUTION)
+      target_zoom = math.min(zoom_x, zoom_y)
+    else
+      target_zoom = 1
     end
 
+    gui.panes.booting.bpio_surface = gui.panes.booting.preview_frame.add{
+      type = "camera",
+      position = {0,0},
+      surface_index = surface.lua.index,
+      zoom = target_zoom
+    }
+    
+    gui.panes.booting.bpio_surface.style.natural_width = res.width - 300
+    gui.panes.booting.bpio_surface.style.natural_height = res.height - 300
+    
+    gui.panes.booting.bar_flow = gui.panes.booting.frame.add{
+      type="flow",
+      direction="horizontal"
+    }
+    gui.panes.booting.bar_space = gui.panes.booting.bar_flow.add{
+      type="empty-widget"
+    }
+    gui.panes.booting.bar_space.style.natural_width = (res.width - 300)/3
+    gui.panes.booting.progress_bar = gui.panes.booting.bar_flow.add{
+      type="progressbar"
+    }
+    gui.panes.booting.progress_bar.style.natural_width = (res.width - 300)/3
+    gui.panes.booting.progress_bar.style.bar_width = 12
+    surface.progress_bars[player.index] = gui.panes.booting.progress_bar
 
   else
     gui.panes.player={}
-    gui.panes.player.frame = gui.pane_space.add
-    {
+    gui.panes.player.frame = gui.pane_space.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.player.flow = gui.panes.player.frame.add
-    {
+    gui.panes.player.flow = gui.panes.player.frame.add{
       type = "flow",
       style = "two_module_spacing_vertical_flow",
       direction = "vertical"
     }
-    gui.panes.player.label = gui.panes.player.flow.add
-    {
+    gui.panes.player.label = gui.panes.player.flow.add{
       type = "label",
       caption = {"gui-element.player-label"}
     }
-    gui.panes.player.inventory = gui.panes.player.flow.add
-    {
+    gui.panes.player.inventory = gui.panes.player.flow.add{
       type = "inventory",
       slots_per_row = prototypes.utility_constants.inventory_width
     }
@@ -258,26 +274,22 @@ local function draw_gui(player,core_dict)
 
 
     gui.panes.control = {} 
-    gui.panes.control.frame = gui.pane_space.add
-    {
+    gui.panes.control.frame = gui.pane_space.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.control.label = gui.panes.control.frame.add
-    {
+    gui.panes.control.label = gui.panes.control.frame.add{
       type = "label",
       caption = {"gui-element.mod-control-label"},
       style = "frame_title"
     }
 
-    gui.panes.control.preview_frame = gui.panes.control.frame.add
-    {
+    gui.panes.control.preview_frame = gui.panes.control.frame.add{
       type = "frame",
       style = "deep_frame_in_shallow_frame"
     }
-    gui.panes.control.preview = gui.panes.control.preview_frame.add
-    {
+    gui.panes.control.preview = gui.panes.control.preview_frame.add{
       type = "camera",
       position = core_dict.entities.core.position,
       surface_index =  core_dict.entities.core.surface_index,
@@ -286,21 +298,18 @@ local function draw_gui(player,core_dict)
     gui.panes.control.preview.style.natural_height=200
     gui.panes.control.preview.style.natural_width=400
 
-    gui.panes.control.surface_label = gui.panes.control.frame.add
-    {
+    gui.panes.control.surface_label = gui.panes.control.frame.add{
       type = "label",
       caption = {"gui-element.mod-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
     if core_dict.state == "off" then
-      gui.panes.control.status_label = gui.panes.control.frame.add
-      {
+      gui.panes.control.status_label = gui.panes.control.frame.add{
         type = "label",
         caption = {"gui-element.mod-control-status-off-label"}
       }
-      gui.panes.control.button = gui.panes.control.frame.add
-      {
+      gui.panes.control.button = gui.panes.control.frame.add{
         type = "sprite-button",
         name = "bpio-simulate",
         sprite = "utility/play",
@@ -309,55 +318,45 @@ local function draw_gui(player,core_dict)
     end
 
     gui.panes.inventories = {}
-    gui.panes.inventories.frame = gui.pane_space.add
-    {
+    gui.panes.inventories.frame = gui.pane_space.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.inventories.label = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.label = gui.panes.inventories.frame.add{
       type = "label",
       caption = {"gui-element.inventories-label"},
       style = "frame_title"
     }
-    gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add{
       type = "label",
       caption = {"gui-element.blueprint-label"}
     }
-    gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
       slots_per_row = 5
     }
-    gui.panes.inventories.building_label = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.building_label = gui.panes.inventories.frame.add{
       type = "label",
       caption = {"gui-element.building-label"}
     }
-    gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
       slots_per_row = 6
     }
-    gui.panes.inventories.input_label = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.input_label = gui.panes.inventories.frame.add{
       type = "label",
       caption = {"gui-element.input-label"}
     }
-    gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add{
       type = "inventory",
       slots_per_row = 6
     }
-    gui.panes.inventories.output_label = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.output_label = gui.panes.inventories.frame.add{
       type = "label",
       caption = {"gui-element.output-label"}
     }
-    gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add
-    {
+    gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
       slots_per_row = 6
     }
@@ -522,13 +521,25 @@ script.on_event(defines.events.on_gui_click, function(event)
     return
   end
 
+  local building_inventory = core.inventories.building
   local building_wants = bp_slot.cost_to_build
-  local building_has = core.inventories.building.get_contents()
+  local building_has = building_inventory.get_contents()
   local building_error = false
 
-  if is_super_set(as_item_list(building_has),as_item_list(building_wants)) then
+  local wants_list = as_item_list(building_wants)
+  local has_list = as_item_list(building_has)
+  
+  if not (wants_list["bpio-input-watcher"] and 
+          wants_list["bpio-input-watcher"].normal == 1 and 
+          wants_list["bpio-output-watcher"] and 
+          wants_list["bpio-output-watcher"].normal == 1) then
+    force.print("Your blueprint has to have a single input and a single output")
+    return
+  end
+
+  if is_super_set(has_list,wants_list) then
     for _,item_format in pairs(building_wants) do
-      local removed = core.inventories.building.remove(item_format)
+      local removed = building_inventory.remove(item_format)
       if removed ~= item_format.count then building_error = true end
     end
   else
@@ -566,10 +577,12 @@ script.on_event(defines.events.on_gui_click, function(event)
   surface.lua.force_generate_chunk_requests()
   surface.force = game.create_force("bpio-force")
   surface.force.copy_from(force)
+  surface.progress = 0
+  surface.progress_bars = {}
   force.print("Created surface and force")
 
   surface.status = "build_ghosts"
-  storage.queue.surface[event.tick]=id
+  storage.queue.surface[event.tick+1]=id
 
   for viewer,opened in pairs(dicts.player) do
     if opened == id then
@@ -646,9 +659,16 @@ local function on_tick(event)
       end
     end
     if surface.status == "begin_logging" then
+      queues.surface[clock+1] = surface_now
+      surface.status = "busy"
       surface.building_force.print("Began logging...")
-
-
+    end
+    if surface.status == "busy" then
+      surface.progress = surface.progress + 5/3600
+      for _,progress_bar in pairs(surface.progress_bars) do
+        if progress_bar.valid then progress_bar.value = surface.progress end 
+      end
+      queues.surface[clock+5] = surface_now
     end
   end
 end
