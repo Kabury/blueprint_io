@@ -512,7 +512,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   end
 
   local size = bp_slot.blueprint_snap_to_grid 
-  if size == nil then
+  if size == nil or size.x == nil or size.y == nil then
     force.print("Blueprint needs to have relative snapping enabled")
     return
   end
@@ -556,9 +556,30 @@ script.on_event(defines.events.on_gui_click, function(event)
     surface.properties[property] = source_surface.get_property(property)
   end
 
-  surface.status = "prepare_force"
-  storage.queue.surface[event.tick+5]=id
-  draw_gui(player, core)
+
+  surface.lua = game.create_surface("bpio-surface",{width=size.x,height=size.y})
+  for property,value in pairs(surface.properties) do
+    surface.lua.set_property(property,value)
+  end
+  surface.lua.generate_with_lab_tiles = true
+  surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(size.x/32),math.ceil(size.y/32)))
+  surface.lua.force_generate_chunk_requests()
+  surface.force = game.create_force("bpio-force")
+  surface.force.copy_from(force)
+  force.print("Created surface and force")
+
+  surface.status = "build_ghosts"
+  storage.queue.surface[event.tick]=id
+
+  for viewer,opened in pairs(dicts.player) do
+    if opened == id then
+      local lua_viewer = game.get_player(viewer)
+      if lua_viewer then
+        draw_gui(lua_viewer,surface.core)
+      end 
+    end
+  end
+
 end)
 
 
@@ -583,49 +604,8 @@ local function on_tick(event)
 
   if surface_now then
     local surface = dicts.surface --[[@as surfaceDict]]
-    if surface.status == "prepare_force" then
-      surface.force = game.create_force("bpio-force")
-      surface.force.copy_from(surface.building_force)
-      surface.status = "create_surface"
-      queues.surface[clock+5] = surface_now
-      surface.building_force.print("Created force")
-    end
-    if surface.status == "create_surface" then
-      surface.lua = game.create_surface("bpio-surface",{width=surface.size.x,height=surface.size.y})
-      for property,value in pairs(surface.properties) do
-        surface.lua.set_property(property,value)
-      end
-      surface.lua.generate_with_lab_tiles = true
-      surface.status = "queue_chunks"
-      queues.surface[clock+5] = surface_now
-      surface.building_force.print("Created surface")
-    end
-    if surface.status == "queue_chunks" then
-      local size = surface.size --[[@as TilePosition.struct]]
-      surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(size.x/32),math.ceil(size.y/32)))
-      surface.status = "finish_chunks"
-      queues.surface[clock+5] = surface_now
-      surface.building_force.print("Queued chunks")
-    end
-    if surface.status == "finish_chunks" then
-      surface.lua.force_generate_chunk_requests()
-      surface.status = "build_ghosts"
-      queues.surface[clock+5] = surface_now
-      surface.building_force.print("Finished chunks")
-    end
     if surface.status == "build_ghosts" then
-      local id = surface.core.entities.core.unit_number
-      for player,core in pairs(dicts.player) do
-        if core == id then
-          local lua_player = game.get_player(player)
-          if lua_player then
-            draw_gui(lua_player,surface.core)
-          end 
-        end
-      end
-      
       local blueprint = surface.core.inventories.blueprint[1]
-
       local ghosts = blueprint.build_blueprint{surface=surface.lua,force=surface.force, position={0,0}}
       if not next(ghosts) then 
         surface.building_force.print("Could not build ghosts. Aborting")
@@ -634,8 +614,8 @@ local function on_tick(event)
       end
       surface.ghosts = ghosts
       surface.status = "begin_entities"
-      queues.surface[clock+5] = surface_now
-      surface.building_force.print("placed ghosts")
+      queues.surface[clock+1] = surface_now
+      surface.building_force.print("Placed ghosts")
       ::abort::
     end
     if surface.status == "begin_entities"then
@@ -643,7 +623,7 @@ local function on_tick(event)
         ghost.revive()
         surface.ghosts[ghostid]=nil
       end
-      queues.surface[clock+5] = surface_now
+      queues.surface[clock+1] = surface_now
       if next(surface.ghosts) then
         surface.status = "retry_entities"
         surface.building_force.print("Not all entities were built. Retrying...")
@@ -657,7 +637,7 @@ local function on_tick(event)
         ghost.revive()
         surface.ghosts[ghostid]=nil
       end
-      queues.surface[clock+5] = surface_now
+      queues.surface[clock+1] = surface_now
       if next(surface.ghosts) then
         surface.building_force.print("Not all entities were built. Retrying...")
       else
