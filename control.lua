@@ -1,8 +1,6 @@
---===================
---===== Library =====
---===================
-
---===== Types
+--=================
+--===== Types =====
+--=================
 
 ---@class coreEntities
 ---@field core LuaEntity The core entity with the controlling GUI
@@ -18,14 +16,89 @@
 ---@class coreDict
 ---@field entities coreEntities
 ---@field inventories coreInventories
+---@field cost ItemWithQualityCount[] How much did it cost to activate this core.
 ---@field state "off"|"booting"|"on"
----@field next number? When are we rechecking this core
----@field check number? Check number
----@field status boolean? Whether all checks have been successful so far
+---@field check number Check number
+
+---@class surfaceDict
+---@field core coreDict The core associated to the surface
+---@field status string? What stage the surface is on
+---@field lua LuaSurface The lua pointer to the surface
+---@field force LuaForce The lua pointer to the temporary force
+---@field building_force LuaForce The building force
+---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
+---@field size TilePosition Size of the blueprint
+---@field ghosts LuaEntity[] The ghosts we build
+
+---@alias playerID uint32
+
+---@class dictionaryDict
+---@field core table<coreID,coreDict>
+---@field surface surfaceDict
+---@field player table<playerID,coreID>
+
+---@alias time number
+---@alias coreID number
+
+---@class queueDict
+---@field core table<time, coreID[]>
+---@field surface table<time, coreID>
+
+---@alias quality_name string
+---@alias qualityCounts table<quality_name,number>
+---@alias itemList table<data.ItemName,qualityCounts>
+
+--==========================
+--===== Initialization =====
+--==========================
+
+local function init_storage()
+  storage.dictionary = { surface = {}, core = {}, player = {} }
+  storage.queue = { surface = {}, core = {} }
+end
+
+script.on_init(function()
+  init_storage()
+end)
+
+local function reorganize(event)
+  if event.setting == "bpio-stagger" then 
+  end
+end
+
+script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 
 
 
---===== Functions for cores
+--===================
+--===== Library =====
+--===================
+
+local kl = require("__klib__.runtime_stage")
+
+---@param item_array ItemWithQualityCount[]
+local function as_item_list(item_array)
+  ---@type itemList
+  local item_list = {}
+  for _,item_format in pairs(item_array) do
+    local item_table = kl.get_or_set(item_list,item_format.name)
+    item_table[item_format.quality] = item_table[item_format.quality] or 0 + item_format.count
+  end
+  return item_list
+end
+
+---@param super_list itemList
+---@param sub_list itemList
+local function is_super_set(super_list,sub_list)
+  for name,qcounts in pairs(sub_list) do
+    if not super_list[name] then return false end
+    for quality,count in pairs(qcounts) do
+      if not super_list[name][quality] then return false end
+      if count > super_list[name][quality] then return false end
+    end
+  end
+  return true
+end
 
 ---@param dict coreDict
 ---@param mode "entities"|"inventories"|"both"
@@ -56,10 +129,24 @@ local function core_destroy(dict)
   dict.entities.core.die()
 end
 
-
+---@param dict surfaceDict
+local function surface_destroy(dict)
+  game.delete_surface("bpio-surface")
+  game.merge_forces("bpio-force",dict.building_force)
+  dict.building_force = nil
+  dict.force = nil
+  dict.core = nil
+  dict.size = nil
+  dict.properties = nil
+  dict.status = nil
+  dict.lua = nil
+  storage.queue.surface = {}
+end
 
 --===== Functions for GUI
 
+---@param player LuaPlayer
+---@param core_dict coreDict
 local function draw_gui(player,core_dict)
   local valid = is_valid_core(core_dict,"both")
   if not valid then 
@@ -90,170 +177,200 @@ local function draw_gui(player,core_dict)
   player.opened = gui.master
 
 
-
-  gui.panes.player={}
-  gui.panes.player.frame = gui.pane_space.add
-  {
-    type = "frame",
-    style = "inside_shallow_frame_with_padding",
-    direction = "vertical"
-  }
-  gui.panes.player.flow = gui.panes.player.frame.add
-  {
-    type = "flow",
-    style = "two_module_spacing_vertical_flow",
-    direction = "vertical"
-  }
-  gui.panes.player.label = gui.panes.player.flow.add
-  {
-    type = "label",
-    caption = {"gui-element.player-label"}
-  }
-  gui.panes.player.inventory = gui.panes.player.flow.add
-  {
-    type = "inventory",
-    slots_per_row = prototypes.utility_constants.inventory_width
-  }
-  local player_inventory = player.get_main_inventory()
-  gui.panes.player.inventory.inventory = player_inventory
-
-
-  gui.panes.control = {} 
-  gui.panes.control.frame = gui.pane_space.add
-  {
-    type = "frame",
-    style = "inside_shallow_frame_with_padding",
-    direction = "vertical"
-  }
-  gui.panes.control.label = gui.panes.control.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.mod-control-label"},
-    style = "frame_title"
-  }
-
-  gui.panes.control.preview_frame = gui.panes.control.frame.add
-  {
-    type = "frame",
-    style = "deep_frame_in_shallow_frame"
-  }
-  gui.panes.control.preview = gui.panes.control.preview_frame.add
-  {
-    type = "camera",
-    position = core_dict.entities.core.position,
-    surface_index =  core_dict.entities.core.surface_index,
-    zoom = 0.65
-  }
-  gui.panes.control.preview.style.natural_height=200
-  gui.panes.control.preview.style.natural_width=400
-  gui.panes.control.preview.entity = core_dict.entities.core
-
-  gui.panes.control.surface_label = gui.panes.control.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.mod-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
-  }
-
-
-  if core_dict.state == "off" then
-    gui.panes.control.status_label = gui.panes.control.frame.add
+  if core_dict.state == "booting" then
+    gui.panes.booting = {} 
+    gui.panes.booting.frame = gui.pane_space.add
+    {
+      type = "frame",
+      style = "inside_shallow_frame_with_padding",
+      direction = "vertical"
+    }
+    gui.panes.booting.label = gui.panes.booting.frame.add
     {
       type = "label",
-      caption = {"gui-element.mod-control-status-off-label"}
+      caption = {"gui-element.booting-label"},
+      style = "frame_title"
     }
-    gui.panes.control.button = gui.panes.control.frame.add
+    gui.panes.booting.surface_label = gui.panes.booting.frame.add
     {
-      type = "sprite-button",
-      name = "bpio-simulate",
-      sprite = "utility/play",
-      style = "train_schedule_action_button"
+      type = "label",
+      caption = {"gui-element.booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
+
+
+    gui.panes.booting.preview_frame = gui.panes.booting.frame.add
+    {
+      type = "frame",
+      style = "deep_frame_in_shallow_frame"
+    }
+    local bpio_surface = game.surfaces["bpio-surface"]
+
+    if bpio_surface ~=nil then
+      local bpio_size = storage.dictionary.surface.size
+      local res = player.display_resolution 
+      local resy = res.height - 300
+      local resx = res.width - 300
+
+      local tile_size = 32
+      local zoom_x = (resx-50) / (bpio_size.x * tile_size)
+      local zoom_y = (resy-50) / (bpio_size.y * tile_size)
+      local target_zoom = math.min(zoom_x, zoom_y)
+
+      gui.panes.booting.bpio_surface = gui.panes.booting.frame.add
+      {
+        type = "camera",
+        position = {0,0},
+        surface_index = bpio_surface.index,
+        zoom = target_zoom
+      }
+      
+      gui.panes.booting.bpio_surface.style.natural_height = resy
+      gui.panes.booting.bpio_surface.style.natural_width = resx
+    end
+
+
+  else
+    gui.panes.player={}
+    gui.panes.player.frame = gui.pane_space.add
+    {
+      type = "frame",
+      style = "inside_shallow_frame_with_padding",
+      direction = "vertical"
+    }
+    gui.panes.player.flow = gui.panes.player.frame.add
+    {
+      type = "flow",
+      style = "two_module_spacing_vertical_flow",
+      direction = "vertical"
+    }
+    gui.panes.player.label = gui.panes.player.flow.add
+    {
+      type = "label",
+      caption = {"gui-element.player-label"}
+    }
+    gui.panes.player.inventory = gui.panes.player.flow.add
+    {
+      type = "inventory",
+      slots_per_row = prototypes.utility_constants.inventory_width
+    }
+    local player_inventory = player.get_main_inventory()
+    gui.panes.player.inventory.inventory = player_inventory
+
+
+    gui.panes.control = {} 
+    gui.panes.control.frame = gui.pane_space.add
+    {
+      type = "frame",
+      style = "inside_shallow_frame_with_padding",
+      direction = "vertical"
+    }
+    gui.panes.control.label = gui.panes.control.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.mod-control-label"},
+      style = "frame_title"
+    }
+
+    gui.panes.control.preview_frame = gui.panes.control.frame.add
+    {
+      type = "frame",
+      style = "deep_frame_in_shallow_frame"
+    }
+    gui.panes.control.preview = gui.panes.control.preview_frame.add
+    {
+      type = "camera",
+      position = core_dict.entities.core.position,
+      surface_index =  core_dict.entities.core.surface_index,
+      zoom = 0.65
+    }
+    gui.panes.control.preview.style.natural_height=200
+    gui.panes.control.preview.style.natural_width=400
+
+    gui.panes.control.surface_label = gui.panes.control.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.mod-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
+    }
+
+
+    if core_dict.state == "off" then
+      gui.panes.control.status_label = gui.panes.control.frame.add
+      {
+        type = "label",
+        caption = {"gui-element.mod-control-status-off-label"}
+      }
+      gui.panes.control.button = gui.panes.control.frame.add
+      {
+        type = "sprite-button",
+        name = "bpio-simulate",
+        sprite = "utility/play",
+        style = "train_schedule_action_button"
+      }
+    end
+
+    gui.panes.inventories = {}
+    gui.panes.inventories.frame = gui.pane_space.add
+    {
+      type = "frame",
+      style = "inside_shallow_frame_with_padding",
+      direction = "vertical"
+    }
+    gui.panes.inventories.label = gui.panes.inventories.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.inventories-label"},
+      style = "frame_title"
+    }
+    gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.blueprint-label"}
+    }
+    gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add
+    {
+      type = "inventory",
+      slots_per_row = 5
+    }
+    gui.panes.inventories.building_label = gui.panes.inventories.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.building-label"}
+    }
+    gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add
+    {
+      type = "inventory",
+      slots_per_row = 6
+    }
+    gui.panes.inventories.input_label = gui.panes.inventories.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.input-label"}
+    }
+    gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add
+    {
+      type = "inventory",
+      slots_per_row = 6
+    }
+    gui.panes.inventories.output_label = gui.panes.inventories.frame.add
+    {
+      type = "label",
+      caption = {"gui-element.output-label"}
+    }
+    gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add
+    {
+      type = "inventory",
+      slots_per_row = 6
+    }
+
+    gui.panes.inventories.blueprint_inventory.inventory = core_dict.inventories.blueprint
+    gui.panes.inventories.blueprint_inventory.style.maximal_width=48
+    gui.panes.inventories.building_inventory.inventory = core_dict.inventories.building
+    gui.panes.inventories.input_inventory.inventory = core_dict.inventories.input
+    gui.panes.inventories.output_inventory.inventory = core_dict.inventories.output
   end
-
-
-  gui.panes.inventories = {}
-  gui.panes.inventories.frame = gui.pane_space.add
-  {
-    type = "frame",
-    style = "inside_shallow_frame_with_padding",
-    direction = "vertical"
-  }
-  gui.panes.inventories.label = gui.panes.inventories.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.mod-inventories-label"},
-    style = "frame_title"
-  }
-  gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.blueprint-label"}
-  }
-  gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add
-  {
-    type = "inventory",
-    slots_per_row = 5
-  }
-  gui.panes.inventories.building_label = gui.panes.inventories.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.building-label"}
-  }
-  gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add
-  {
-    type = "inventory",
-    slots_per_row = 6
-  }
-  gui.panes.inventories.input_label = gui.panes.inventories.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.input-label"}
-  }
-  gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add
-  {
-    type = "inventory",
-    slots_per_row = 6
-  }
-  gui.panes.inventories.output_label = gui.panes.inventories.frame.add
-  {
-    type = "label",
-    caption = {"gui-element.output-label"}
-  }
-  gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add
-  {
-    type = "inventory",
-    slots_per_row = 6
-  }
-
-  gui.panes.inventories.blueprint_inventory.inventory = core_dict.inventories.blueprint
-  gui.panes.inventories.blueprint_inventory.style.maximal_width=48
-  gui.panes.inventories.building_inventory.inventory = core_dict.inventories.building
-  gui.panes.inventories.input_inventory.inventory = core_dict.inventories.input
-  gui.panes.inventories.output_inventory.inventory = core_dict.inventories.output
 end
 
 
-local kl = require("__klib__.runtime_stage")
-
---==========================
---===== Initialization =====
---==========================
-
-local function init_storage()
-  storage.dictionary = { surface = {}, core = {}, player = {} }
-  storage.queue = { surface = {}, core = {} }
-end
-
-script.on_init(function()
-  init_storage()
-end)
-
-local function reorganize(event)
-  if event.setting == "bpio-stagger" then 
-  end
-end
-
-script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 
 --====================
 --===== Building =====
@@ -353,7 +470,7 @@ script.on_event(defines.events.on_player_controller_changed, function(event)
   if not player then return end
 
   local dicts = storage.dictionary
-  if not (dicts) then return end
+  if not dicts then return end
   if dicts.player[player.index] == nil then return end
 
   local id = dicts.player[player.index]
@@ -370,19 +487,18 @@ script.on_event(defines.events.on_gui_click, function(event)
   if event.element.name ~= "bpio-simulate" then return end
 
   local player = game.get_player(event.player_index)
-  if player == nil then
-    return
-  end
-  local force = player.force
+  if not player then return end
+  local force = player.force --[[@as LuaForce]]
+  if not (force and force.print) then return end
 
-  local dicts = storage.dictionary
-  if dicts.surface ~= nil then
+  local dicts = storage.dictionary --[[@as dictionaryDict]]
+  if not (dicts and dicts.surface.status == nil) then
     force.print("Another blueprint core is processing. Wait until it finishes.")
     return
   end
 
   local id = dicts.player[player.index]
-  ---@type coreDict
+
   local core = dicts.core[id]
   if not is_valid_core(core,"both") then
     force.print("Invalid core")
@@ -395,25 +511,54 @@ script.on_event(defines.events.on_gui_click, function(event)
     return
   end
 
-  local size = bp_slot.blueprint_snap_to_grid
+  local size = bp_slot.blueprint_snap_to_grid 
   if size == nil then
-    force.print("Blueprint needs to have snapping enabled")
+    force.print("Blueprint needs to have relative snapping enabled")
     return
   end
 
-  local surface = dicts.surface
-  surface.force=force
+  if bp_slot.blueprint_absolute_snapping then
+    force.print("Blueprint has absolute snapping. Needs to be relative")
+    return
+  end
+
+  local building_wants = bp_slot.cost_to_build
+  local building_has = core.inventories.building.get_contents()
+  local building_error = false
+
+  if is_super_set(as_item_list(building_has),as_item_list(building_wants)) then
+    for _,item_format in pairs(building_wants) do
+      local removed = core.inventories.building.remove(item_format)
+      if removed ~= item_format.count then building_error = true end
+    end
+  else
+    force.print("You don't have enough items to build this blueprint")
+    return
+  end
+
+  if building_error then
+    force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
+  else
+    force.print("Got items needed to build")
+  end
+
+  core.cost = building_wants
+  core.state = "booting"
+
+  local surface = dicts.surface --[[@as surfaceDict]]
+  surface.building_force=force
   surface.core=core
-  surface.size=size
+  surface.size=size 
   surface.properties = {}
 
   local source_surface = core.entities.core.surface
-  for name,property in pairs(prototypes.surface_property) do
-    surface.properties[name] = source_surface.get_property(property)
+  for _,property in pairs(prototypes.surface_property) do
+    surface.properties[property] = source_surface.get_property(property)
   end
 
-  surface.status = "create"
+  surface.status = "prepare_force"
   storage.queue.surface[event.tick+5]=id
+  draw_gui(player, core)
 end)
 
 
@@ -424,82 +569,108 @@ end)
 
 local function on_tick(event)
   local clock = event.tick
-  
+
+  ---@type queueDict
   local queues = storage.queue
   if queues == nil then return end
-
   local core_now = queues.core[clock]
   local surface_now = queues.surface[clock]
   if not core_now and not surface_now then return end
+
+  ---@type dictionaryDict
   local dicts = storage.dictionary
-  
+  if not dicts then return end
+
   if surface_now then
-    local surface = dicts.surface[surface_now]
-    if surface.status == "create" then
-      surface.lua = game.create_surface("bpio-scratchpad",{width=surface.size.x,height=surface.size.y})
+    local surface = dicts.surface --[[@as surfaceDict]]
+    if surface.status == "prepare_force" then
+      surface.force = game.create_force("bpio-force")
+      surface.force.copy_from(surface.building_force)
+      surface.status = "create_surface"
+      queues.surface[clock+5] = surface_now
+      surface.building_force.print("Created force")
+    end
+    if surface.status == "create_surface" then
+      surface.lua = game.create_surface("bpio-surface",{width=surface.size.x,height=surface.size.y})
+      for property,value in pairs(surface.properties) do
+        surface.lua.set_property(property,value)
+      end
       surface.lua.generate_with_lab_tiles = true
       surface.status = "queue_chunks"
       queues.surface[clock+5] = surface_now
-      surface.force.print("Created surface")
+      surface.building_force.print("Created surface")
     end
     if surface.status == "queue_chunks" then
-      surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(surface.size.x/32),math.ceil(surface.size.y/32)))
+      local size = surface.size --[[@as TilePosition.struct]]
+      surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(size.x/32),math.ceil(size.y/32)))
       surface.status = "finish_chunks"
       queues.surface[clock+5] = surface_now
-      surface.force.print("Queued chunks")
+      surface.building_force.print("Queued chunks")
     end
     if surface.status == "finish_chunks" then
-      surface.lua.force_generate_chunks_requests()
+      surface.lua.force_generate_chunk_requests()
       surface.status = "build_ghosts"
       queues.surface[clock+5] = surface_now
-      surface.force.print("Finished chunks")
+      surface.building_force.print("Finished chunks")
     end
     if surface.status == "build_ghosts" then
+      local id = surface.core.entities.core.unit_number
+      for player,core in pairs(dicts.player) do
+        if core == id then
+          local lua_player = game.get_player(player)
+          if lua_player then
+            draw_gui(lua_player,surface.core)
+          end 
+        end
+      end
+      
       local blueprint = surface.core.inventories.blueprint[1]
-      local ghosts = blueprint.build_blueprint{surface=surface.lua}
-      surface.lua.force_generate_chunks_requests()
-      surface.status = "build_ghosts"
+
+      local ghosts = blueprint.build_blueprint{surface=surface.lua,force=surface.force, position={0,0}}
+      if not next(ghosts) then 
+        surface.building_force.print("Could not build ghosts. Aborting")
+        surface_destroy(surface)
+        goto abort
+      end
+      surface.ghosts = ghosts
+      surface.status = "begin_entities"
       queues.surface[clock+5] = surface_now
-      surface.force.print("Finished chunks")
+      surface.building_force.print("placed ghosts")
+      ::abort::
+    end
+    if surface.status == "begin_entities"then
+      for ghostid,ghost in pairs(surface.ghosts) do
+        ghost.revive()
+        surface.ghosts[ghostid]=nil
+      end
+      queues.surface[clock+5] = surface_now
+      if next(surface.ghosts) then
+        surface.status = "retry_entities"
+        surface.building_force.print("Not all entities were built. Retrying...")
+      else
+        surface.status = "begin_logging"
+        surface.building_force.print("Built entities cleanly")
+      end
+    end
+    if surface.status == "retry_entities" then
+      for ghostid,ghost in pairs(surface.ghosts) do
+        ghost.revive()
+        surface.ghosts[ghostid]=nil
+      end
+      queues.surface[clock+5] = surface_now
+      if next(surface.ghosts) then
+        surface.building_force.print("Not all entities were built. Retrying...")
+      else
+        surface.status = "begin_logging"
+        surface.building_force.print("Built entities after some passes.")
+      end
+    end
+    if surface.status == "begin_logging" then
+      surface.building_force.print("Began logging...")
+
+
     end
   end
-
-
-
-  local surfacePending = storage.queue.surface[clock]
-  if surfacePending == nil then
-    return
-  end
-
-  if surfacePending == "ghost_builds" and storage.ghosts then
-    for ghostid,ghost in pairs(storage.ghosts) do
-      ghost.revive()
-      storage.ghosts[ghostid]=nil
-      game.print("Ended build")
-    end
-  end
-
-  if surfacePending == "end_ghost_builds" and storage.ghosts then
-    for ghostid,ghost in pairs(storage.ghosts) do
-      ghost.revive()
-      storage.ghosts[ghostid]=nil
-      game.print("Re-ended build")
-    end
-  end
-
-  if surfacePending == "cleanup" then
-    storage.scratchpad.clear()
-  end
-
-  if surfacePending == "generate" then
-    storage.scratchpad.request_to_generate_chunks({0,0},40)
-  end
-  
-  if surfacePending == "force_generate" then
-    storage.scratchpad.force_generate_chunk_requests()
-    storage.surface_queue=nil
-  end
-
 end
 
 script.on_event(defines.events.on_tick, on_tick)
