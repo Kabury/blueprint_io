@@ -7,11 +7,11 @@ data:extend({
     },
     {
     type = "item",
-    name = "bpio-core",
+    name = "bpio-site",
     icons = {{icon="__blueprint_io__/graphics/icons/market.png",icon_size = 32}},
     subgroup = "bpio",
-    order = "bpio-core",
-    place_result = "bpio-core",
+    order = "bpio-site",
+    place_result = "bpio-site",
     stack_size = 50
     },
     {

@@ -2,7 +2,7 @@ data:extend(
 {
   {
     type = "recipe",
-    name = "bpio-core",
+    name = "bpio-site",
     enabled = false,
     ingredients = 
     {
@@ -10,7 +10,7 @@ data:extend(
     },
     results = 
     {
-      { type = "item", name = "bpio-core", amount = 1 }
+      { type = "item", name = "bpio-site", amount = 1 }
     }
   },
   {

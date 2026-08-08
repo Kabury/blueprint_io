@@ -12,13 +12,20 @@
 ---@field building LuaInventory Inventory for the buildings for the blueprint
 ---@field input LuaInventory Inventory to check incoming items. Tied to the entity
 ---@field output LuaInventory Inventory to check outgoing items. Tied to the entity
+---@field history LuaInventory[] All the inventories at different times in the core
 
 ---@class coreDict
+---@field id coreID
 ---@field entities coreEntities
 ---@field inventories coreInventories
----@field cost ItemWithQualityCount[] How much did it cost to activate this core.
----@field state "off"|"booting"|"on"
+---@field state "off"|"booting"|"standby"|"on"
 ---@field check number Check number
+---@field cost ItemWithQualityCount[] How much did it cost to activate this core.
+---@field input ItemWithQualityCount[] What will be spawned in the blueprint
+---@field input_list itemList Pre-processed inputs for comparison
+---@field history ItemWithQualityCount[] Lists of items at different times of the surface
+---@field history_lists itemList[] Lists of items at different times of the surface
+---@field output ItemWithQualityCount[] What will be spanwed in the interface
 
 ---@class surfaceDict
 ---@field core coreDict The core associated to the surface
@@ -28,6 +35,8 @@
 ---@field building_force LuaForce The building force
 ---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
 ---@field size TilePosition Size of the blueprint
+---@field input_watcher LuaEntity
+---@field output_watcher LuaEntity
 ---@field ghosts LuaEntity[] The ghosts we build
 ---@field progress double How much has the surface ran
 ---@field progress_bars LuaGuiElement[] The progress bar
@@ -41,10 +50,11 @@
 
 ---@alias time number
 ---@alias coreID number
+---@alias status "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"begin_logging"|"busy"|"epilog"
 
 ---@class queueDict
 ---@field core table<time, coreID[]>
----@field surface table<time, coreID>
+---@field surface table<time, status>
 
 ---@alias quality_name string
 ---@alias qualityCounts table<quality_name,number>
@@ -91,6 +101,22 @@ local function as_item_list(item_array)
   return item_list
 end
 
+---@param item_list itemList
+local function as_item_quality_count(item_list)
+  ---@type ItemWithQualityCount[]
+  local item_table = {}
+  for name,qcounts in pairs(item_list) do
+    for quality,count in pairs(qcounts) do
+      if count < 0 then
+        table.insert(item_table,{name=name,quality=quality,count=-count})
+      elseif count > 0 then
+        table.insert(item_table,{name=name,quality=quality,count=count})
+      end
+    end
+  end
+  return item_table
+end
+
 ---@param super_list itemList
 ---@param sub_list itemList
 local function is_super_set(super_list,sub_list)
@@ -104,9 +130,24 @@ local function is_super_set(super_list,sub_list)
   return true
 end
 
+---@param before itemList
+---@param after itemList
+local function items_consumed(before,after)
+  local difference = {}
+	for name,qcounts in pairs(before) do
+    difference[name] = {}
+    if not after[name] then after[name] = {} end
+    for quality,count in pairs(qcounts) do
+      difference[name][quality] = count - (after[name][quality] or 0)
+    end
+	end
+  return difference
+end
+
 ---@param dict coreDict
 ---@param mode "entities"|"inventories"|"both"
 local function is_valid_core(dict,mode)
+  if not dict then return false end
   local entities_check = true
   if mode == "entities" or mode == "both" then
     for _,entity in pairs(dict.entities) do
@@ -116,8 +157,14 @@ local function is_valid_core(dict,mode)
 
   local inventories_check = true
   if mode == "inventories" or mode == "both" then
-    for _,inventory in pairs(dict.inventories) do
-      inventories_check = inventories_check and inventory.valid
+    for type,inventory in pairs(dict.inventories) do
+      if type == "history" then
+        for _,inner_inventory in pairs(inventory) do
+          inventories_check = inventories_check and inner_inventory.valid
+        end
+      else  
+        inventories_check = inventories_check and inventory.valid   
+      end
     end
   end
 
@@ -133,8 +180,32 @@ local function core_destroy(dict)
   dict.entities.core.die()
 end
 
+local function nil_surface_data()
+  local data = storage.dictionary.surface
+  data.core = nil
+  data.status = nil
+  data.lua = nil
+  data.force = nil
+  data.building_force = nil
+  data.properties = nil
+  data.size = nil
+  data.ghosts = nil
+  data.progress = nil
+  data.progress_bars = nil
+  storage.queue.surface = {}
+end
+
 ---@param dict surfaceDict
-local function surface_destroy(dict)
+local function surface_shutdown(dict)
+  game.delete_surface("bpio-surface")
+  game.merge_forces("bpio-force",dict.building_force)
+  local force = dict.core.entities.core.force --[[@as LuaForce]]
+  force.print("Shutting dimension down")
+  nil_surface_data()
+end
+
+---@param dict surfaceDict
+local function surface_recall(dict)
   game.delete_surface("bpio-surface")
   game.merge_forces("bpio-force",dict.building_force)
   local core = dict.core
@@ -144,17 +215,7 @@ local function surface_destroy(dict)
   end
   local force= core.entities.core.force --[[@as LuaForce]]
   force.print("Refunded buildings")
-  dict.core = nil
-  dict.status = nil
-  dict.lua = nil
-  dict.force = nil
-  dict.building_force = nil
-  dict.properties = nil
-  dict.size = nil
-  dict.ghosts = nil
-  dict.progress = nil
-  dict.progress_bars = nil
-  storage.queue.surface = {}
+  nil_surface_data()
 end
 
 --===== Functions for GUI
@@ -176,7 +237,7 @@ local function draw_gui(player,core_dict)
   gui.master = player.gui.screen.add{
     type = "frame",
     name = "bpio-menu",
-    caption = { "gui-element.gui-title" },
+    caption = { "gui-element.bpio-gui-title" },
     style = "inset_frame_container_frame",
     direction = "vertical"
   }
@@ -198,12 +259,12 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.booting.label = gui.panes.booting.frame.add{
       type = "label",
-      caption = {"gui-element.booting-label"},
+      caption = {"gui-element.bpio-status-booting-label"},
       style = "frame_title"
     }
     gui.panes.booting.surface_label = gui.panes.booting.frame.add{
       type = "label",
-      caption = {"gui-element.booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
+      caption = {"gui-element.bpio-booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
@@ -263,7 +324,7 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.player.label = gui.panes.player.flow.add{
       type = "label",
-      caption = {"gui-element.player-label"}
+      caption = {"gui-element.bpio-player-label"}
     }
     gui.panes.player.inventory = gui.panes.player.flow.add{
       type = "inventory",
@@ -281,7 +342,7 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.control.label = gui.panes.control.frame.add{
       type = "label",
-      caption = {"gui-element.mod-control-label"},
+      caption = {"gui-element.bpio-control-label"},
       style = "frame_title"
     }
 
@@ -300,14 +361,14 @@ local function draw_gui(player,core_dict)
 
     gui.panes.control.surface_label = gui.panes.control.frame.add{
       type = "label",
-      caption = {"gui-element.mod-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
+      caption = {"gui-element.bpio-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
     if core_dict.state == "off" then
       gui.panes.control.status_label = gui.panes.control.frame.add{
         type = "label",
-        caption = {"gui-element.mod-control-status-off-label"}
+        caption = {"gui-element.bpio-status-off-label"}
       }
       gui.panes.control.button = gui.panes.control.frame.add{
         type = "sprite-button",
@@ -317,6 +378,32 @@ local function draw_gui(player,core_dict)
       }
     end
 
+    if core_dict.state == "standby" then
+      gui.panes.control.status_label = gui.panes.control.frame.add{
+        type = "label",
+        caption = {"gui-element.bpio-status-standby-label"}
+      }
+      gui.panes.control.button = gui.panes.control.frame.add{
+        type = "sprite-button",
+        name = "bpio-simulate",
+        sprite = "utility/reset",
+        style = "train_schedule_action_button"
+      }
+      for _,inventory in pairs(core_dict.inventories.history) do
+        local inventory_gui = gui.panes.control.frame.add{
+          type = "inventory",
+          slots_per_row = 5,
+          handle_cursor_transfer = false,
+          handle_cursor_split = false,
+          handle_open_item = false,
+          handle_open_mod_item = false,
+          handle_send_stack_to_trash = false,
+          handle_send_stacks_to_trash = false
+        }
+        inventory_gui.inventory=inventory
+      end
+    end
+    
     gui.panes.inventories = {}
     gui.panes.inventories.frame = gui.pane_space.add{
       type = "frame",
@@ -325,28 +412,30 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.inventories.label = gui.panes.inventories.frame.add{
       type = "label",
-      caption = {"gui-element.inventories-label"},
+      caption = {"gui-element.bpio-inventories-label"},
       style = "frame_title"
     }
     gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add{
       type = "label",
-      caption = {"gui-element.blueprint-label"}
+      caption = {"gui-element.bpio-blueprint-label"}
     }
     gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
-      slots_per_row = 5
+      slots_per_row = 1
     }
     gui.panes.inventories.building_label = gui.panes.inventories.frame.add{
       type = "label",
-      caption = {"gui-element.building-label"}
+      caption = {"gui-element.bpio-building-label"}
     }
     gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
-      slots_per_row = 6
+      slots_per_row = 6,
+      handle_send_stack_to_trash = false,
+      handle_send_stacks_to_trash = false
     }
     gui.panes.inventories.input_label = gui.panes.inventories.frame.add{
       type = "label",
-      caption = {"gui-element.input-label"}
+      caption = {"gui-element.bpio-input-label"}
     }
     gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add{
       type = "inventory",
@@ -354,7 +443,7 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.inventories.output_label = gui.panes.inventories.frame.add{
       type = "label",
-      caption = {"gui-element.output-label"}
+      caption = {"gui-element.bpio-output-label"}
     }
     gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
@@ -378,39 +467,55 @@ end
 local function on_bpio_created(event)
   if event.effect_id ~= "bpio-built-event" then return end
   ---@type LuaEntity
-  local core = event.target_entity
-  local surface = core.surface
-  local position = core.position
-  local force = core.force
+  local site = event.target_entity
+  local surface = site.surface
+  local position = site.position
+  local force = site.force
 
+  local core
+  local internal_inputs = {}
   local input
   local output
   if position.x and position.y then
-    input = surface.create_entity
-    {
+    core = surface.create_entity{
+      name="bpio-core",
+      position={x=position.x,y=position.y},
+      force=force
+    }
+    for i = 1,6 do
+      local internal_input=surface.create_entity{
+        name="bpio-internal-input",
+        position={x=position.x,y=position.y},
+        force=force
+        }
+      internal_inputs[i]=internal_input.get_inventory(defines.inventory.chest)
+    end
+    input = surface.create_entity{
       name="bpio-input",
       position={x=position.x-5,y=position.y},
       force=force
     }
-    output = surface.create_entity
-    {
+    output = surface.create_entity{
       name="bpio-output",
       position={x=position.x+5,y=position.y},
       force=force
     }
   end
+  local core_id
   local in_inventory
   local out_inventory
-  if input and output then
+  if core and input and output then
+    core_id = core.unit_number
     in_inventory  = input.get_inventory(defines.inventory.chest)
     out_inventory = output.get_inventory(defines.inventory.chest)
+  else
+    print("Something went wrong while building our entities. Remove everything and try again")
+    return
   end
-  
-  local id = core.unit_number
 
-  storage.dictionary.core[id] = 
+  storage.dictionary.core[core_id] = 
   {
-    id=id,
+    id=core_id,
     state="off",
     entities=
     {
@@ -423,9 +528,11 @@ local function on_bpio_created(event)
       blueprint = game.create_inventory(1),
       building  = game.create_inventory(30), 
       input     = in_inventory,
-      output    = out_inventory
+      output    = out_inventory,
+      history   = internal_inputs 
     }
   }
+  site.destroy()
 end
 
 script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
@@ -550,16 +657,20 @@ script.on_event(defines.events.on_gui_click, function(event)
   if building_error then
     force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
   else
-    force.print("Got items needed to build")
-  end
+    force.print("Used items needed to build")
+  end 
 
   core.cost = building_wants
+  core.input = core.inventories.input.get_contents()
+  core.input_list = as_item_list(core.input)
+  core.check = 0
+  core.history_lists = {}
   core.state = "booting"
 
   local surface = dicts.surface --[[@as surfaceDict]]
   surface.building_force=force
   surface.core=core
-  surface.size=size 
+  surface.size=size
   surface.properties = {}
 
   local source_surface = core.entities.core.surface
@@ -581,8 +692,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   surface.progress_bars = {}
   force.print("Created surface and force")
 
-  surface.status = "build_ghosts"
-  storage.queue.surface[event.tick+1]=id
+  storage.queue.surface[event.tick+1]="build_ghosts"
 
   for viewer,opened in pairs(dicts.player) do
     if opened == id then
@@ -617,58 +727,102 @@ local function on_tick(event)
 
   if surface_now then
     local surface = dicts.surface --[[@as surfaceDict]]
-    if surface.status == "build_ghosts" then
+    if surface_now == "build_ghosts" then
       local blueprint = surface.core.inventories.blueprint[1]
       local ghosts = blueprint.build_blueprint{surface=surface.lua,force=surface.force, position={0,0}}
       if not next(ghosts) then 
-        surface.building_force.print("Could not build ghosts. Aborting")
-        surface_destroy(surface)
-        goto abort
+        surface.building_force.print("Could not build ghosts. Recalling")
+        surface_recall(surface)
+      else
+        surface.ghosts = ghosts
+        queues.surface[clock+1] = "begin_entities"
+        surface.building_force.print("Placed ghosts")
       end
-      surface.ghosts = ghosts
-      surface.status = "begin_entities"
-      queues.surface[clock+1] = surface_now
-      surface.building_force.print("Placed ghosts")
-      ::abort::
     end
-    if surface.status == "begin_entities"then
+    if surface_now == "begin_entities"then
       for ghostid,ghost in pairs(surface.ghosts) do
         ghost.revive()
         surface.ghosts[ghostid]=nil
       end
-      queues.surface[clock+1] = surface_now
+      
       if next(surface.ghosts) then
-        surface.status = "retry_entities"
+        queues.surface[clock+1] = "retry_entities"
         surface.building_force.print("Not all entities were built. Retrying...")
       else
-        surface.status = "begin_logging"
+        queues.surface[clock+1] = "initialize_logs"
         surface.building_force.print("Built entities cleanly")
       end
     end
-    if surface.status == "retry_entities" then
+    if surface_now == "retry_entities" then
       for ghostid,ghost in pairs(surface.ghosts) do
         ghost.revive()
         surface.ghosts[ghostid]=nil
       end
-      queues.surface[clock+1] = surface_now
+      
       if next(surface.ghosts) then
+        queues.surface[clock+1] = "retry_entities"
         surface.building_force.print("Not all entities were built. Retrying...")
       else
-        surface.status = "begin_logging"
+        queues.surface[clock+1] = "initialize_logs"
         surface.building_force.print("Built entities after some passes.")
       end
     end
-    if surface.status == "begin_logging" then
-      queues.surface[clock+1] = surface_now
-      surface.status = "busy"
-      surface.building_force.print("Began logging...")
-    end
-    if surface.status == "busy" then
-      surface.progress = surface.progress + 5/3600
-      for _,progress_bar in pairs(surface.progress_bars) do
-        if progress_bar.valid then progress_bar.value = surface.progress end 
+    if surface_now == "initialize_logs" then
+      local input_watcher = surface.lua.find_entities_filtered{name = "bpio-input-watcher"}
+      local output_watcher = surface.lua.find_entities_filtered{name = "bpio-output-watcher"}
+      if not (input_watcher[1] and output_watcher[1]) then goto abort2 end                                                                                                                                            
+      surface.input_watcher = input_watcher[1].get_inventory(defines.inventory.chest)
+      surface.output_watcher = output_watcher[1].get_inventory(defines.inventory.chest)
+      if not (surface.input_watcher and surface.output_watcher) then goto abort2 end
+      for _,item_format in pairs(surface.core.input) do
+        surface.input_watcher.insert(item_format)
       end
-      queues.surface[clock+5] = surface_now
+      queues.surface[clock+1] = "busy"
+      surface.building_force.print("Spawned items")
+      surface.building_force.print("Began logging...")
+      ::abort2::
+    end
+    if surface_now == "busy" then
+      surface.progress = surface.progress + 1
+      if surface.progress % 120 == 0 then
+        surface.core.check = surface.core.check + 1
+        local current_input = surface.input_watcher.get_contents()
+        local current_list = as_item_list(current_input)
+        surface.core.history_lists[surface.core.check] = items_consumed(surface.core.input_list,current_list) 
+      end
+      for _,progress_bar in pairs(surface.progress_bars) do
+        if progress_bar.valid then progress_bar.value = surface.progress*5/3600 end 
+      end
+      if surface.core.check == 6 then
+        surface.core.output = surface.output_watcher.get_contents()
+        surface.core.state = "standby"
+        queues.surface[clock+5] = "epilog"
+      else
+        queues.surface[clock+5] = "busy"
+      end
+    end
+    if surface_now == "epilog" then
+      local id = surface.core.id
+      local core = dicts.core[id]
+      surface_shutdown(surface)
+      core.history={}
+      local history_format = core.history
+      for time,list in pairs(core.history_lists) do
+        local time_inventory = core.inventories.history[time]
+        local item_format = as_item_quality_count(list)
+        history_format[time] = item_format
+        for _,item_spec in pairs(item_format) do
+          time_inventory.insert(item_spec)
+        end
+      end
+      for viewer,opened in pairs(dicts.player) do
+        if opened == id then
+          local lua_viewer = game.get_player(viewer)
+          if lua_viewer then
+            draw_gui(lua_viewer,core)
+          end 
+        end
+      end
     end
   end
 end
