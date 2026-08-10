@@ -13,6 +13,7 @@
 ---@field input LuaInventory Inventory to check incoming items. Tied to the entity
 ---@field output LuaInventory Inventory to check outgoing items. Tied to the entity
 ---@field history LuaInventory[] All the inventories at different times in the core
+---@field preview LuaInventory The thing the core would produce, for the gui.
 
 ---@class coreDict
 ---@field id coreID
@@ -385,7 +386,7 @@ local function draw_gui(player,core_dict)
       }
       gui.panes.control.button = gui.panes.control.frame.add{
         type = "sprite-button",
-        name = "bpio-simulate",
+        name = "bpio-redo",
         sprite = "utility/reset",
         style = "train_schedule_action_button"
       }
@@ -400,8 +401,21 @@ local function draw_gui(player,core_dict)
           handle_send_stack_to_trash = false,
           handle_send_stacks_to_trash = false
         }
+        inventory_gui.style.maximal_width=40*5
         inventory_gui.inventory=inventory
       end
+      local inventory_gui = gui.panes.control.frame.add{
+        type = "inventory",
+        slots_per_row = 5,
+        handle_cursor_transfer = false,
+        handle_cursor_split = false,
+        handle_open_item = false,
+        handle_open_mod_item = false,
+        handle_send_stack_to_trash = false,
+        handle_send_stacks_to_trash = false
+      }
+      inventory_gui.style.maximal_width=40*5
+      inventory_gui.inventory=core_dict.inventories.preview
     end
     
     gui.panes.inventories = {}
@@ -429,9 +443,7 @@ local function draw_gui(player,core_dict)
     }
     gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add{
       type = "inventory",
-      slots_per_row = 6,
-      handle_send_stack_to_trash = false,
-      handle_send_stacks_to_trash = false
+      slots_per_row = 6
     }
     gui.panes.inventories.input_label = gui.panes.inventories.frame.add{
       type = "label",
@@ -476,6 +488,7 @@ local function on_bpio_created(event)
   local internal_inputs = {}
   local input
   local output
+  local preview
   if position.x and position.y then
     core = surface.create_entity{
       name="bpio-core",
@@ -490,6 +503,11 @@ local function on_bpio_created(event)
         }
       internal_inputs[i]=internal_input.get_inventory(defines.inventory.chest)
     end
+    preview = surface.create_entity{
+      name="bpio-internal-input",
+      position={x=position.x,y=position.y},
+      force=force
+    }
     input = surface.create_entity{
       name="bpio-input",
       position={x=position.x-5,y=position.y},
@@ -504,10 +522,12 @@ local function on_bpio_created(event)
   local core_id
   local in_inventory
   local out_inventory
+  local preview_inventory
   if core and input and output then
     core_id = core.unit_number
     in_inventory  = input.get_inventory(defines.inventory.chest)
     out_inventory = output.get_inventory(defines.inventory.chest)
+    preview_inventory = preview.get_inventory(defines.inventory.chest)
   else
     print("Something went wrong while building our entities. Remove everything and try again")
     return
@@ -529,7 +549,8 @@ local function on_bpio_created(event)
       building  = game.create_inventory(30), 
       input     = in_inventory,
       output    = out_inventory,
-      history   = internal_inputs 
+      history   = internal_inputs,
+      preview   = preview_inventory
     }
   }
   site.destroy()
@@ -814,6 +835,10 @@ local function on_tick(event)
         for _,item_spec in pairs(item_format) do
           time_inventory.insert(item_spec)
         end
+      end
+      local preview_inventory = core.inventories.preview 
+      for _,item_spec in pairs(core.output) do
+        preview_inventory.insert(item_spec)
       end
       for viewer,opened in pairs(dicts.player) do
         if opened == id then
