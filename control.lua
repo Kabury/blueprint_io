@@ -12,8 +12,6 @@
 ---@field building LuaInventory Inventory for the buildings for the blueprint
 ---@field input LuaInventory Inventory to check incoming items. Tied to the entity
 ---@field output LuaInventory Inventory to check outgoing items. Tied to the entity
----@field history LuaInventory[] All the inventories at different times in the core
----@field preview LuaInventory The thing the core would produce, for the gui.
 
 ---@class coreDict
 ---@field id coreID
@@ -21,12 +19,15 @@
 ---@field inventories coreInventories
 ---@field state "off"|"booting"|"standby"|"on"
 ---@field check number Check number
----@field cost ItemWithQualityCount[] How much did it cost to activate this core.
----@field input ItemWithQualityCount[] What will be spawned in the blueprint
----@field input_list itemList Pre-processed inputs for comparison
----@field history ItemWithQualityCount[] Lists of items at different times of the surface
----@field history_lists itemList[] Lists of items at different times of the surface
----@field output ItemWithQualityCount[] What will be spanwed in the interface
+---@field cost ItemWithQualityCount[] What items we used to build this core. To give back to the player.
+---@field input ItemWithQualityCount[] What will be spawned in the surface, once.
+---@field output ItemWithQualityCount[] What will be spawned in the active entity every cycle.
+--We use this format because it's more straightforward to do comparisons on inventories.
+---@field input_list itemList We use this to compare each point in time when the surface is being simulated.
+---@field output_list itemList We use this
+---@field history itemList[] Lists of items at different times of the surface
+
+
 
 ---@class surfaceDict
 ---@field core coreDict The core associated to the surface
@@ -51,7 +52,7 @@
 
 ---@alias time number
 ---@alias coreID number
----@alias status "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"begin_logging"|"busy"|"epilog"
+---@alias status "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
 
 ---@class queueDict
 ---@field core table<time, coreID[]>
@@ -88,6 +89,7 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 --===================
 
 local TILE_RESOLUTION = 32
+local BAR_FREQUENCY = 5
 
 local kl = require("__klib__.runtime_stage")
 
@@ -117,6 +119,47 @@ local function as_item_quality_count(item_list)
   end
   return item_table
 end
+
+---@param gui_element LuaGuiElement
+---@param item_list itemList
+---@param time? number
+---@param unit? "s"|"m"|"h"
+local function draw_item_list(gui_element, item_list,time,unit)
+  local flow = gui_element.add{
+    type="flow",
+    direction = "horizontal"
+  }
+  if time and unit then
+    local time_flow =     flow.add{
+      type = "flow",
+      direction = "horizontal"
+    }
+    local button = time_flow.add{
+      type = "sprite-button",
+      sprite = "utility/clock",
+      number = time
+    }
+    local new_text = time_flow.add{
+      type = "label",
+      caption = unit,
+      font = "count-font"
+    }
+    new_text.style.font = "count-font"
+    new_text.style.top_margin=20
+    new_text.style.left_margin=-7
+  end
+  for item,qcount in pairs(item_list) do
+    for quality,count in pairs(qcount) do
+      flow.add{
+        type = "sprite-button",
+        sprite = "item/"..item,
+        quality = quality,
+        number = count
+      }
+    end
+  end
+end
+
 
 ---@param super_list itemList
 ---@param sub_list itemList
@@ -158,14 +201,8 @@ local function is_valid_core(dict,mode)
 
   local inventories_check = true
   if mode == "inventories" or mode == "both" then
-    for type,inventory in pairs(dict.inventories) do
-      if type == "history" then
-        for _,inner_inventory in pairs(inventory) do
-          inventories_check = inventories_check and inner_inventory.valid
-        end
-      else  
-        inventories_check = inventories_check and inventory.valid   
-      end
+    for _,inventory in pairs(dict.inventories) do
+      inventories_check = inventories_check and inventory.valid   
     end
   end
 
@@ -235,41 +272,41 @@ local function draw_gui(player,core_dict)
   end
 
   local gui = {}
-  gui.master = player.gui.screen.add{
+  gui.master = {}
+  gui.master.frame = player.gui.screen.add{
     type = "frame",
     name = "bpio-menu",
     caption = { "gui-element.bpio-gui-title" },
     style = "inset_frame_container_frame",
     direction = "vertical"
   }
-  gui.pane_space = gui.master.add{
-    type="flow",
-    direction="horizontal"
-  }
-  gui.panes={}
-  gui.master.auto_center = true
-  player.opened = gui.master
+  gui.master.frame.auto_center = true
+  player.opened = gui.master.frame
 
+  gui.master.flow = gui.master.frame.add{
+    type = "flow",
+    direction = "horizontal"
+  }
 
   if core_dict.state == "booting" then
-    gui.panes.booting = {} 
-    gui.panes.booting.frame = gui.pane_space.add{
+    gui.master.booting = {}
+    gui.master.booting.frame = gui.master.flow.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.booting.label = gui.panes.booting.frame.add{
+    gui.master.booting.label = gui.master.booting.frame.add{
       type = "label",
       caption = {"gui-element.bpio-status-booting-label"},
       style = "frame_title"
     }
-    gui.panes.booting.surface_label = gui.panes.booting.frame.add{
+    gui.master.booting.surface_label = gui.master.booting.frame.add{
       type = "label",
       caption = {"gui-element.bpio-booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
-    gui.panes.booting.preview_frame = gui.panes.booting.frame.add{
+    gui.master.booting.preview = gui.master.booting.frame.add{
       type = "frame",
       style = "deep_frame_in_shallow_frame"
     }
@@ -286,92 +323,102 @@ local function draw_gui(player,core_dict)
       target_zoom = 1
     end
 
-    gui.panes.booting.bpio_surface = gui.panes.booting.preview_frame.add{
+    gui.master.booting.bpio_surface = gui.master.booting.preview.add{
       type = "camera",
       position = {0,0},
       surface_index = surface.lua.index,
       zoom = target_zoom
     }
     
-    gui.panes.booting.bpio_surface.style.natural_width = res.width - 300
-    gui.panes.booting.bpio_surface.style.natural_height = res.height - 300
+    gui.master.booting.bpio_surface.style.natural_width = res.width - 300
+    gui.master.booting.bpio_surface.style.natural_height = res.height - 300
     
-    gui.panes.booting.bar_flow = gui.panes.booting.frame.add{
+    gui.master.booting.bar_flow = gui.master.booting.frame.add{
       type="flow",
       direction="horizontal"
     }
-    gui.panes.booting.bar_space = gui.panes.booting.bar_flow.add{
+    gui.master.booting.bar_space = gui.master.booting.bar_flow.add{
       type="empty-widget"
     }
-    gui.panes.booting.bar_space.style.natural_width = (res.width - 300)/3
-    gui.panes.booting.progress_bar = gui.panes.booting.bar_flow.add{
+    gui.master.booting.bar_space.style.natural_width = math.floor((res.width - 300)/3)
+    gui.master.booting.progress_bar = gui.master.booting.bar_flow.add{
       type="progressbar"
     }
-    gui.panes.booting.progress_bar.style.natural_width = (res.width - 300)/3
-    gui.panes.booting.progress_bar.style.bar_width = 12
-    surface.progress_bars[player.index] = gui.panes.booting.progress_bar
+    gui.master.booting.progress_bar.style.natural_width = math.floor((res.width - 300)/3)
+    gui.master.booting.progress_bar.style.bar_width = 12
+    surface.progress_bars[player.index] = gui.master.booting.progress_bar
 
   else
-    gui.panes.player={}
-    gui.panes.player.frame = gui.pane_space.add{
+
+    gui.master.player = {}
+    gui.master.player.frame = gui.master.flow.add{
       type = "frame",
       style = "inside_shallow_frame_with_padding",
       direction = "vertical"
     }
-    gui.panes.player.flow = gui.panes.player.frame.add{
+    gui.master.player.frame.style.vertically_stretchable=true
+    gui.master.player.flow = gui.master.player.frame.add{
       type = "flow",
       style = "two_module_spacing_vertical_flow",
       direction = "vertical"
     }
-    gui.panes.player.label = gui.panes.player.flow.add{
+    gui.master.player.label = gui.master.player.flow.add{
       type = "label",
       caption = {"gui-element.bpio-player-label"}
     }
-    gui.panes.player.inventory = gui.panes.player.flow.add{
+    gui.master.player.inventory = gui.master.player.flow.add{
       type = "inventory",
       slots_per_row = prototypes.utility_constants.inventory_width
     }
     local player_inventory = player.get_main_inventory()
-    gui.panes.player.inventory.inventory = player_inventory
+    gui.master.player.inventory.inventory = player_inventory
 
 
-    gui.panes.control = {} 
-    gui.panes.control.frame = gui.pane_space.add{
-      type = "frame",
-      style = "inside_shallow_frame_with_padding",
-      direction = "vertical"
+    gui.master.side = {} 
+
+    gui.master.side.container =gui.master.flow.add{
+      type = "scroll-pane",
+      direction = "vertical",
+      vertical_scroll_policy = "auto"
     }
-    gui.panes.control.label = gui.panes.control.frame.add{
+
+    gui.master.side.frame = gui.master.side.container.add{
+      type = "frame",
+      direction = "vertical",
+      style = "inside_shallow_frame_with_padding"
+    }
+    gui.master.side.container.style.maximal_height = 700
+    gui.master.side.control_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-control-label"},
       style = "frame_title"
     }
 
-    gui.panes.control.preview_frame = gui.panes.control.frame.add{
+    gui.master.side.preview_frame = gui.master.side.frame.add{
       type = "frame",
       style = "deep_frame_in_shallow_frame"
     }
-    gui.panes.control.preview = gui.panes.control.preview_frame.add{
+    gui.master.side.preview = gui.master.side.preview_frame.add{
       type = "camera",
       position = core_dict.entities.core.position,
       surface_index =  core_dict.entities.core.surface_index,
       zoom = 0.65
     }
-    gui.panes.control.preview.style.natural_height=200
-    gui.panes.control.preview.style.natural_width=400
+    gui.master.side.preview.style.natural_height=200
+    gui.master.side.preview.style.natural_width=400
 
-    gui.panes.control.surface_label = gui.panes.control.frame.add{
+    gui.master.side.surface_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
     }
 
 
     if core_dict.state == "off" then
-      gui.panes.control.status_label = gui.panes.control.frame.add{
+      gui.master.side.status_label = gui.master.side.frame.add{
         type = "label",
         caption = {"gui-element.bpio-status-off-label"}
       }
-      gui.panes.control.button = gui.panes.control.frame.add{
+      gui.master.side.play_button = gui.master.side.frame.add{
         type = "sprite-button",
         name = "bpio-simulate",
         sprite = "utility/play",
@@ -380,93 +427,106 @@ local function draw_gui(player,core_dict)
     end
 
     if core_dict.state == "standby" then
-      gui.panes.control.status_label = gui.panes.control.frame.add{
+      gui.master.side.status_label = gui.master.side.frame.add{
         type = "label",
         caption = {"gui-element.bpio-status-standby-label"}
       }
-      gui.panes.control.button = gui.panes.control.frame.add{
+      gui.master.side.control_panel = gui.master.side.frame.add{
+        type = "flow",
+        direction = "horizontal"
+      }
+      gui.master.side.play_button = gui.master.side.control_panel.add{
+        type = "sprite-button",
+        name = "bpio-simulate",
+        sprite = "utility/play",
+        style = "train_schedule_action_button"
+      }
+      gui.master.side.redo_button = gui.master.side.control_panel.add{
         type = "sprite-button",
         name = "bpio-redo",
         sprite = "utility/reset",
         style = "train_schedule_action_button"
       }
-      for _,inventory in pairs(core_dict.inventories.history) do
-        local inventory_gui = gui.panes.control.frame.add{
-          type = "inventory",
-          slots_per_row = 5,
-          handle_cursor_transfer = false,
-          handle_cursor_split = false,
-          handle_open_item = false,
-          handle_open_mod_item = false,
-          handle_send_stack_to_trash = false,
-          handle_send_stacks_to_trash = false
-        }
-        inventory_gui.style.maximal_width=40*5
-        inventory_gui.inventory=inventory
-      end
-      local inventory_gui = gui.panes.control.frame.add{
-        type = "inventory",
-        slots_per_row = 5,
-        handle_cursor_transfer = false,
-        handle_cursor_split = false,
-        handle_open_item = false,
-        handle_open_mod_item = false,
-        handle_send_stack_to_trash = false,
-        handle_send_stacks_to_trash = false
+
+      gui.master.side.crafting_flow = gui.master.side.frame.add{
+        type = "flow",
+        direction = "horizontal"
       }
-      inventory_gui.style.maximal_width=40*5
-      inventory_gui.inventory=core_dict.inventories.preview
+      gui.master.side.crafting_flow.style.vertical_align="bottom"
+
+      gui.master.side.crafting_inputs_flow = gui.master.side.crafting_flow.add{
+        type = "flow",
+        direction = "vertical"
+      }
+
+      local invis_left = gui.master.side.crafting_flow.add{
+        type = "flow"
+      }
+      gui.master.side.crafting_arrow = gui.master.side.crafting_flow.add{
+        type = "sprite-button",
+        sprite = "utility/recipe_potential_arrow"
+      }
+      local invis_right = gui.master.side.crafting_flow.add{
+        type = "flow"
+      }
+      invis_left.style.natural_width=24
+      invis_right.style.natural_width=24
+
+      local i = 1
+      local times = {{30,"s"},{1,"m"},{90,"s"},{2,"m"}}
+      for _,item_list in pairs(core_dict.history) do
+        draw_item_list(gui.master.side.crafting_inputs_flow ,item_list,times[i][1],times[i][2])
+        i = i +1
+      end
+      draw_item_list(gui.master.side.crafting_flow,core_dict.output_list,2,"m")
     end
     
-    gui.panes.inventories = {}
-    gui.panes.inventories.frame = gui.pane_space.add{
-      type = "frame",
-      style = "inside_shallow_frame_with_padding",
-      direction = "vertical"
-    }
-    gui.panes.inventories.label = gui.panes.inventories.frame.add{
+
+    
+    gui.master.side.inventories = {}
+    gui.master.side.inventories.label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-inventories-label"},
       style = "frame_title"
     }
-    gui.panes.inventories.blueprint_label = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.blueprint_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-blueprint-label"}
     }
-    gui.panes.inventories.blueprint_inventory = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.blueprint_inventory = gui.master.side.frame.add{
       type = "inventory",
       slots_per_row = 1
     }
-    gui.panes.inventories.building_label = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.building_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-building-label"}
     }
-    gui.panes.inventories.building_inventory = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.building_inventory = gui.master.side.frame.add{
       type = "inventory",
-      slots_per_row = 6
+      slots_per_row = 10
     }
-    gui.panes.inventories.input_label = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.input_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-input-label"}
     }
-    gui.panes.inventories.input_inventory =  gui.panes.inventories.frame.add{
+    gui.master.side.inventories.input_inventory =  gui.master.side.frame.add{
       type = "inventory",
       slots_per_row = 6
     }
-    gui.panes.inventories.output_label = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.output_label = gui.master.side.frame.add{
       type = "label",
       caption = {"gui-element.bpio-output-label"}
     }
-    gui.panes.inventories.output_inventory = gui.panes.inventories.frame.add{
+    gui.master.side.inventories.output_inventory = gui.master.side.frame.add{
       type = "inventory",
       slots_per_row = 6
     }
 
-    gui.panes.inventories.blueprint_inventory.inventory = core_dict.inventories.blueprint
-    gui.panes.inventories.blueprint_inventory.style.maximal_width=48
-    gui.panes.inventories.building_inventory.inventory = core_dict.inventories.building
-    gui.panes.inventories.input_inventory.inventory = core_dict.inventories.input
-    gui.panes.inventories.output_inventory.inventory = core_dict.inventories.output
+    gui.master.side.inventories.blueprint_inventory.inventory = core_dict.inventories.blueprint
+    gui.master.side.inventories.blueprint_inventory.style.maximal_width=48
+    gui.master.side.inventories.building_inventory.inventory = core_dict.inventories.building
+    gui.master.side.inventories.input_inventory.inventory = core_dict.inventories.input
+    gui.master.side.inventories.output_inventory.inventory = core_dict.inventories.output
   end
 end
 
@@ -485,26 +545,11 @@ local function on_bpio_created(event)
   local force = site.force
 
   local core
-  local internal_inputs = {}
   local input
   local output
-  local preview
   if position.x and position.y then
     core = surface.create_entity{
       name="bpio-core",
-      position={x=position.x,y=position.y},
-      force=force
-    }
-    for i = 1,6 do
-      local internal_input=surface.create_entity{
-        name="bpio-internal-input",
-        position={x=position.x,y=position.y},
-        force=force
-        }
-      internal_inputs[i]=internal_input.get_inventory(defines.inventory.chest)
-    end
-    preview = surface.create_entity{
-      name="bpio-internal-input",
       position={x=position.x,y=position.y},
       force=force
     }
@@ -522,12 +567,10 @@ local function on_bpio_created(event)
   local core_id
   local in_inventory
   local out_inventory
-  local preview_inventory
   if core and input and output then
     core_id = core.unit_number
     in_inventory  = input.get_inventory(defines.inventory.chest)
     out_inventory = output.get_inventory(defines.inventory.chest)
-    preview_inventory = preview.get_inventory(defines.inventory.chest)
   else
     print("Something went wrong while building our entities. Remove everything and try again")
     return
@@ -548,9 +591,7 @@ local function on_bpio_created(event)
       blueprint = game.create_inventory(1),
       building  = game.create_inventory(30), 
       input     = in_inventory,
-      output    = out_inventory,
-      history   = internal_inputs,
-      preview   = preview_inventory
+      output    = out_inventory
     }
   }
   site.destroy()
@@ -611,8 +652,9 @@ end)
 --=======================
 
 script.on_event(defines.events.on_gui_click, function(event)
-  if event.element.name ~= "bpio-simulate" then return end
-
+  local sim = event.element.name == "bpio-simulate"
+  local redo = event.element.name == "bpio-redo"
+  
   local player = game.get_player(event.player_index)
   if not player then return end
   local force = player.force --[[@as LuaForce]]
@@ -632,98 +674,118 @@ script.on_event(defines.events.on_gui_click, function(event)
     return
   end
 
-  local bp_slot = core.inventories.blueprint[1]
-  if not (bp_slot and bp_slot.valid and bp_slot.valid_for_read and bp_slot.is_blueprint and bp_slot.is_blueprint_setup()) then
-    force.print("Invalid blueprint slot")
-    return
-  end
-
-  local size = bp_slot.blueprint_snap_to_grid 
-  if size == nil or size.x == nil or size.y == nil then
-    force.print("Blueprint needs to have relative snapping enabled")
-    return
-  end
-
-  if bp_slot.blueprint_absolute_snapping then
-    force.print("Blueprint has absolute snapping. Needs to be relative")
-    return
-  end
-
-  local building_inventory = core.inventories.building
-  local building_wants = bp_slot.cost_to_build
-  local building_has = building_inventory.get_contents()
-  local building_error = false
-
-  local wants_list = as_item_list(building_wants)
-  local has_list = as_item_list(building_has)
-  
-  if not (wants_list["bpio-input-watcher"] and 
-          wants_list["bpio-input-watcher"].normal == 1 and 
-          wants_list["bpio-output-watcher"] and 
-          wants_list["bpio-output-watcher"].normal == 1) then
-    force.print("Your blueprint has to have a single input and a single output")
-    return
-  end
-
-  if is_super_set(has_list,wants_list) then
-    for _,item_format in pairs(building_wants) do
-      local removed = building_inventory.remove(item_format)
-      if removed ~= item_format.count then building_error = true end
+  if sim then
+    local bp_slot = core.inventories.blueprint[1]
+    if not (bp_slot and bp_slot.valid and bp_slot.valid_for_read and bp_slot.is_blueprint and bp_slot.is_blueprint_setup()) then
+      force.print("Invalid blueprint slot")
+      return
     end
-  else
-    force.print("You don't have enough items to build this blueprint")
-    return
-  end
 
-  if building_error then
-    force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
-  else
-    force.print("Used items needed to build")
-  end 
+    local size = bp_slot.blueprint_snap_to_grid 
+    if size == nil or size.x == nil or size.y == nil then
+      force.print("Blueprint needs to have relative snapping enabled")
+      return
+    end
 
-  core.cost = building_wants
-  core.input = core.inventories.input.get_contents()
-  core.input_list = as_item_list(core.input)
-  core.check = 0
-  core.history_lists = {}
-  core.state = "booting"
+    if bp_slot.blueprint_absolute_snapping then
+      force.print("Blueprint has absolute snapping. Needs to be relative")
+      return
+    end
 
-  local surface = dicts.surface --[[@as surfaceDict]]
-  surface.building_force=force
-  surface.core=core
-  surface.size=size
-  surface.properties = {}
+    local building_inventory = core.inventories.building
+    local building_wants = bp_slot.cost_to_build
+    local building_has = building_inventory.get_contents()
+    local building_error = false
 
-  local source_surface = core.entities.core.surface
-  for _,property in pairs(prototypes.surface_property) do
-    surface.properties[property] = source_surface.get_property(property)
-  end
+    local wants_list = as_item_list(building_wants)
+    local has_list = as_item_list(building_has)
+    
+    if not (wants_list["bpio-input-watcher"] and 
+            wants_list["bpio-input-watcher"].normal == 1 and 
+            wants_list["bpio-output-watcher"] and 
+            wants_list["bpio-output-watcher"].normal == 1) then
+      force.print("Your blueprint has to have a single input and a single output")
+      return
+    end
+
+    if is_super_set(has_list,wants_list) then
+      for _,item_format in pairs(building_wants) do
+        local removed = building_inventory.remove(item_format)
+        if removed ~= item_format.count then building_error = true end
+      end
+    else
+      force.print("You don't have enough items to build this blueprint")
+      return
+    end
+
+    if building_error then
+      force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
+    else
+      force.print("Used items needed to build")
+    end 
+
+    core.cost = building_wants
+    core.input = core.inventories.input.get_contents()
+    core.input_list = as_item_list(core.input)
+    core.check = 0
+    core.history = {}
+    core.state = "booting"
+
+    local surface = dicts.surface --[[@as surfaceDict]]
+    surface.building_force=force
+    surface.core=core
+    surface.size=size
+    surface.properties = {}
+
+    local source_surface = core.entities.core.surface
+    for _,property in pairs(prototypes.surface_property) do
+      surface.properties[property] = source_surface.get_property(property)
+    end
 
 
-  surface.lua = game.create_surface("bpio-surface",{width=size.x,height=size.y})
-  for property,value in pairs(surface.properties) do
-    surface.lua.set_property(property,value)
-  end
-  surface.lua.generate_with_lab_tiles = true
-  surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(size.x/32),math.ceil(size.y/32)))
-  surface.lua.force_generate_chunk_requests()
-  surface.force = game.create_force("bpio-force")
-  surface.force.copy_from(force)
-  surface.progress = 0
-  surface.progress_bars = {}
-  force.print("Created surface and force")
+    surface.lua = game.create_surface("bpio-surface",{width=size.x,height=size.y})
+    for property,value in pairs(surface.properties) do
+      surface.lua.set_property(property,value)
+    end
+    surface.lua.generate_with_lab_tiles = true
+    surface.lua.request_to_generate_chunks({0,0},math.max(math.ceil(size.x/32),math.ceil(size.y/32)))
+    surface.lua.force_generate_chunk_requests()
+    surface.force = game.create_force("bpio-force")
+    surface.force.copy_from(force)
+    surface.progress = 0
+    surface.progress_bars = {}
+    force.print("Created surface and force")
 
-  storage.queue.surface[event.tick+1]="build_ghosts"
+    storage.queue.surface[event.tick+1]="build_ghosts"
 
-  for viewer,opened in pairs(dicts.player) do
-    if opened == id then
-      local lua_viewer = game.get_player(viewer)
-      if lua_viewer then
-        draw_gui(lua_viewer,surface.core)
-      end 
+    for viewer,opened in pairs(dicts.player) do
+      if opened == id then
+        local lua_viewer = game.get_player(viewer)
+        if lua_viewer then
+          draw_gui(lua_viewer,surface.core)
+        end 
+      end
+    end
+  elseif redo then
+    
+    core.cost = nil
+    core.input = nil
+    core.input_list = nil
+    core.output = nil
+    core.output_list = nil
+    core.check = nil
+    core.history = nil
+    core.state = "off"
+
+    for viewer,opened in pairs(dicts.player) do
+      if opened == id then
+        local lua_viewer = game.get_player(viewer)
+        if lua_viewer then
+          draw_gui(lua_viewer,core)
+        end 
+      end
     end
   end
-
 end)
 
 
@@ -805,17 +867,19 @@ local function on_tick(event)
     end
     if surface_now == "busy" then
       surface.progress = surface.progress + 1
-      if surface.progress % 120 == 0 then
+      if surface.progress % ((60*30) / BAR_FREQUENCY) == 0 then
         surface.core.check = surface.core.check + 1
         local current_input = surface.input_watcher.get_contents()
         local current_list = as_item_list(current_input)
-        surface.core.history_lists[surface.core.check] = items_consumed(surface.core.input_list,current_list) 
+        surface.core.history[surface.core.check] = items_consumed(surface.core.input_list,current_list) 
       end
       for _,progress_bar in pairs(surface.progress_bars) do
-        if progress_bar.valid then progress_bar.value = surface.progress*5/3600 end 
+        if progress_bar.valid then progress_bar.value = surface.progress * BAR_FREQUENCY/(2*60*60) end 
       end
-      if surface.core.check == 6 then
-        surface.core.output = surface.output_watcher.get_contents()
+      if surface.core.check == ((2*60)/30) then
+        local output = surface.output_watcher.get_contents()
+        surface.core.output = output
+        surface.core.output_list = as_item_list(output)
         surface.core.state = "standby"
         queues.surface[clock+5] = "epilog"
       else
@@ -826,20 +890,6 @@ local function on_tick(event)
       local id = surface.core.id
       local core = dicts.core[id]
       surface_shutdown(surface)
-      core.history={}
-      local history_format = core.history
-      for time,list in pairs(core.history_lists) do
-        local time_inventory = core.inventories.history[time]
-        local item_format = as_item_quality_count(list)
-        history_format[time] = item_format
-        for _,item_spec in pairs(item_format) do
-          time_inventory.insert(item_spec)
-        end
-      end
-      local preview_inventory = core.inventories.preview 
-      for _,item_spec in pairs(core.output) do
-        preview_inventory.insert(item_spec)
-      end
       for viewer,opened in pairs(dicts.player) do
         if opened == id then
           local lua_viewer = game.get_player(viewer)
