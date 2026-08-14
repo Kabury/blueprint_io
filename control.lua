@@ -19,6 +19,7 @@
 ---@field inventories coreInventories
 ---@field state "off"|"booting"|"standby"|"on"
 ---@field check number Check number
+---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
 ---@field cost ItemWithQualityCount[] What items we used to build this core. To give back to the player.
 ---@field input ItemWithQualityCount[] What will be spawned in the surface, once.
 ---@field output ItemWithQualityCount[] What will be spawned in the active entity every cycle.
@@ -35,7 +36,6 @@
 ---@field lua LuaSurface The lua pointer to the surface
 ---@field force LuaForce The lua pointer to the temporary force
 ---@field building_force LuaForce The building force
----@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
 ---@field size TilePosition Size of the blueprint
 ---@field input_watcher LuaEntity
 ---@field output_watcher LuaEntity
@@ -91,7 +91,14 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 local TILE_RESOLUTION = 32
 local BAR_FREQUENCY = 5
 
-local kl = require("__klib__.runtime_stage")
+local kl = require("__klib__.runtime_stage")  
+local flib = require("__flib__.gui")
+
+local function saneFormatString(str)
+    local result = str:gsub("-", " ")
+    result = result:gsub("^%l", string.upper)
+    return result
+end
 
 ---@param item_array ItemWithQualityCount[]
 local function as_item_list(item_array)
@@ -118,6 +125,33 @@ local function as_item_quality_count(item_list)
     end
   end
   return item_table
+end
+
+---@param super_list itemList
+---@param sub_list itemList
+local function is_super_set(super_list,sub_list)
+  for name,qcounts in pairs(sub_list) do
+    if not super_list[name] then return false end
+    for quality,count in pairs(qcounts) do
+      if not super_list[name][quality] then return false end
+      if count > super_list[name][quality] then return false end
+    end
+  end
+  return true
+end
+
+---@param before itemList
+---@param after itemList
+local function items_consumed(before,after)
+  local difference = {}
+	for name,qcounts in pairs(before) do
+    difference[name] = {}
+    if not after[name] then after[name] = {} end
+    for quality,count in pairs(qcounts) do
+      difference[name][quality] = count - (after[name][quality] or 0)
+    end
+	end
+  return difference
 end
 
 ---@param gui_element LuaGuiElement
@@ -147,6 +181,7 @@ local function draw_item_list(gui_element, item_list,time,unit)
     new_text.style.font = "count-font"
     new_text.style.top_margin=20
     new_text.style.left_margin=-7
+    time_flow.style.natural_width= 48
   end
   for item,qcount in pairs(item_list) do
     for quality,count in pairs(qcount) do
@@ -158,34 +193,6 @@ local function draw_item_list(gui_element, item_list,time,unit)
       }
     end
   end
-end
-
-
----@param super_list itemList
----@param sub_list itemList
-local function is_super_set(super_list,sub_list)
-  for name,qcounts in pairs(sub_list) do
-    if not super_list[name] then return false end
-    for quality,count in pairs(qcounts) do
-      if not super_list[name][quality] then return false end
-      if count > super_list[name][quality] then return false end
-    end
-  end
-  return true
-end
-
----@param before itemList
----@param after itemList
-local function items_consumed(before,after)
-  local difference = {}
-	for name,qcounts in pairs(before) do
-    difference[name] = {}
-    if not after[name] then after[name] = {} end
-    for quality,count in pairs(qcounts) do
-      difference[name][quality] = count - (after[name][quality] or 0)
-    end
-	end
-  return difference
 end
 
 ---@param dict coreDict
@@ -225,7 +232,6 @@ local function nil_surface_data()
   data.lua = nil
   data.force = nil
   data.building_force = nil
-  data.properties = nil
   data.size = nil
   data.ghosts = nil
   data.progress = nil
@@ -260,277 +266,325 @@ end
 
 ---@param player LuaPlayer
 ---@param core_dict coreDict
-local function draw_gui(player,core_dict)
-  local valid = is_valid_core(core_dict,"both")
+local function draw_gui(player, core_dict)
+  local valid = is_valid_core(core_dict, "both")
   if not valid then 
     core_destroy(core_dict) 
     return
   end
 
-  if player.gui.screen["bpio-menu"] then
-    player.gui.screen["bpio-menu"].destroy()
+  if player.gui.screen["bpio_menu"] then
+    player.gui.screen["bpio_menu"].destroy()
   end
 
   local gui = {}
-  gui.master = {}
-  gui.master.frame = player.gui.screen.add{
+  gui.master = flib.add(player.gui.screen, {
     type = "frame",
-    name = "bpio-menu",
+    name = "bpio_menu",
     caption = { "gui-element.bpio-gui-title" },
     style = "inset_frame_container_frame",
-    direction = "vertical"
-  }
-  gui.master.frame.auto_center = true
-  player.opened = gui.master.frame
-
-  gui.master.flow = gui.master.frame.add{
-    type = "flow",
-    direction = "horizontal"
-  }
+    direction = "vertical",
+    elem_mods = { auto_center = true },
+    children = {
+      {
+        type = "flow",
+        name = "mflow",
+        direction = "horizontal"
+      }
+    }
+  }--[[@as flib.GuiElemDef]])
+  player.opened = gui.master.bpio_menu
 
   if core_dict.state == "booting" then
-    gui.master.booting = {}
-    gui.master.booting.frame = gui.master.flow.add{
-      type = "frame",
-      style = "inside_shallow_frame_with_padding",
-      direction = "vertical"
-    }
-    gui.master.booting.label = gui.master.booting.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-status-booting-label"},
-      style = "frame_title"
-    }
-    gui.master.booting.surface_label = gui.master.booting.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-booting-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
-    }
-
-
-    gui.master.booting.preview = gui.master.booting.frame.add{
-      type = "frame",
-      style = "deep_frame_in_shallow_frame"
-    }
-
-    ---@type surfaceDict
-    local surface = storage.dictionary.surface
+    
+    local surface = storage.dictionary.surface --[[@as surfaceDict]]
     local res = player.display_resolution 
     local target_zoom
     if surface.size.x and surface.size.y then 
-      local zoom_x = (res.width-350) / (surface.size.x * TILE_RESOLUTION)
-      local zoom_y = (res.height-350) / (surface.size.y * TILE_RESOLUTION)
+      local zoom_x = (res.width - 350) / (surface.size.x * TILE_RESOLUTION)
+      local zoom_y = (res.height - 350) / (surface.size.y * TILE_RESOLUTION)
       target_zoom = math.min(zoom_x, zoom_y)
     else
       target_zoom = 1
     end
 
-    gui.master.booting.bpio_surface = gui.master.booting.preview.add{
-      type = "camera",
-      position = {0,0},
-      surface_index = surface.lua.index,
-      zoom = target_zoom
-    }
-    
-    gui.master.booting.bpio_surface.style.natural_width = res.width - 300
-    gui.master.booting.bpio_surface.style.natural_height = res.height - 300
-    
-    gui.master.booting.bar_flow = gui.master.booting.frame.add{
-      type="flow",
-      direction="horizontal"
-    }
-    gui.master.booting.bar_space = gui.master.booting.bar_flow.add{
-      type="empty-widget"
-    }
-    gui.master.booting.bar_space.style.natural_width = math.floor((res.width - 300)/3)
-    gui.master.booting.progress_bar = gui.master.booting.bar_flow.add{
-      type="progressbar"
-    }
-    gui.master.booting.progress_bar.style.natural_width = math.floor((res.width - 300)/3)
-    gui.master.booting.progress_bar.style.bar_width = 12
-    surface.progress_bars[player.index] = gui.master.booting.progress_bar
+    gui.booting = flib.add(gui.master.mflow, {
+      type = "frame",
+      style = "inside_shallow_frame_with_padding",
+      direction = "vertical",
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "sprite",
+          sprite = "utility/status_blue",
+          style_mods = { top_margin = 4 },
+        },
+        {
+          type = "label",
+          caption = {"gui-element.bpio-status-booting-label"},
+          style = "frame_title"
+        },
+      },
+      {
+          type = "progressbar",
+          name = "progress_bar",
+          style_mods = { natural_width = math.floor((res.width - 300) ), bar_width = 12 }
+      },
+      {
+        type = "frame",
+        style = "deep_frame_in_shallow_frame",
+        {
+          type = "camera",
+          position = {0, 0},
+          surface_index = surface.lua.index,
+          zoom = target_zoom,
+          style_mods = { natural_width = res.width - 300, natural_height = res.height - 300 }
+        }
+      }
+    })
+    surface.progress_bars[player.index] = gui.booting.progress_bar
 
   else
 
-    gui.master.player = {}
-    gui.master.player.frame = gui.master.flow.add{
-      type = "frame",
-      style = "inside_shallow_frame_with_padding",
-      direction = "vertical"
-    }
-    gui.master.player.frame.style.vertically_stretchable=true
-    gui.master.player.flow = gui.master.player.frame.add{
+    gui.frames = flib.add(gui.master.mflow, {
       type = "flow",
-      style = "two_module_spacing_vertical_flow",
-      direction = "vertical"
-    }
-    gui.master.player.label = gui.master.player.flow.add{
-      type = "label",
-      caption = {"gui-element.bpio-player-label"}
-    }
-    gui.master.player.inventory = gui.master.player.flow.add{
-      type = "inventory",
-      slots_per_row = prototypes.utility_constants.inventory_width
-    }
-    local player_inventory = player.get_main_inventory()
-    gui.master.player.inventory.inventory = player_inventory
+      direction = "horizontal",
+      {
+        type = "frame",
+        name = "lframe",
+        style = "inside_shallow_frame_with_padding",
+        direction = "vertical",
+        {
+          type = "flow",
+          style = "two_module_spacing_vertical_flow",
+          direction = "vertical",
+          style_mods = { vertically_stretchable = true },
+          {
+            type = "label",
+            caption = {"gui-element.bpio-player-label"}
+          },
+          {
+            type = "inventory",
+            name = "player_inventory",
+            slots_per_row = prototypes.utility_constants.inventory_width,
+            elem_mods = { inventory = player.get_main_inventory() }
+          }
+        }
+      },
+      {
+        type = "frame",
+        style = "inside_shallow_frame",
+        name = "rframe",
+        direction = "vertical",
+        {
+          type = "frame",
+          name = "right_inset",
+          style = "deep_frame_in_shallow_frame",
+          direction = "vertical",
+          {
+            type = "tabbed-pane",
+            name = "bpio_tabbed_pane",
+            {
+              type = "tab",
+              name = "control_tab",
+              caption = { "gui-element.bpio-control-label" },
+              style_mods = { vertically_stretchable = true}
+            },
+            {
+              type = "tab",
+              name = "surface_tab",
+              caption = { "gui-element.bpio-surface-label" },
+              style_mods = { vertically_stretchable = true }
+            },
+            {
+              type = "tab",
+              name = "inventories_tab",
+              caption = {"gui-element.bpio-inventories-label"},
+              style_mods = { vertically_stretchable = true }
+            },
+            {
+              type = "tab",
+              name = "data_tab",
+              caption = {"gui-element.bpio-data-label"},
+              style_mods = { vertically_stretchable = true }
+            }
+          }
+        }
+      }
+    })
 
 
-    gui.master.side = {} 
-
-    gui.master.side.container =gui.master.flow.add{
-      type = "scroll-pane",
+    gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
+    {
+      type = "flow",
       direction = "vertical",
-      vertical_scroll_policy = "auto"
-    }
+      name = "control_flow",
+      style_mods = { padding = 12},
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "sprite",
+          style_mods = { top_margin = 2 },
+          sprite =  core_dict.state == "off" and "utility/status_not_working" or 
+                    core_dict.state == "standby" and "utility/status_yellow"
+        },
+        {
+          type = "label",
+          caption = core_dict.state == "off" and {"gui-element.bpio-status-off-label"} or 
+                    core_dict.state == "standby" and {"gui-element.bpio-status-standby-label"}
+        }
+      },
+      {
+        type = "frame",
+        style = "deep_frame_in_shallow_frame",
+        {
+          type = "camera",
+          name = "preview",
+          position = core_dict.entities.core.position,
+          surface_index = core_dict.entities.core.surface_index,
+          zoom = 0.65,
+          style_mods = { natural_width = 400-12, natural_height = 200-12 }
+        }
+      },
+      {
+        type = "flow",
+        name = "button_tray",
+        direction = "horizontal",
+        {
+          type = "sprite-button",
+          name = "bpio-simulate",
+          sprite = "utility/play",
+          style = "train_schedule_action_button"
+        },
+        {
+          type = "sprite-button",
+          name = "bpio-redo",
+          sprite = "utility/reset",
+          style = "train_schedule_action_button",
+          visible = core_dict.state == "standby",
+        }
+      }
+    }--[[@as flib.GuiElemDef]])
+    gui.frames.bpio_tabbed_pane.add_tab(gui.frames.control_tab, gui.control_container.control_flow)
 
-    gui.master.side.frame = gui.master.side.container.add{
-      type = "frame",
+
+    gui.surface_container = flib.add(gui.frames.bpio_tabbed_pane,
+    {
+      type = "flow",
       direction = "vertical",
-      style = "inside_shallow_frame_with_padding"
-    }
-    gui.master.side.container.style.maximal_height = 700
-    gui.master.side.control_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-control-label"},
-      style = "frame_title"
-    }
-
-    gui.master.side.preview_frame = gui.master.side.frame.add{
-      type = "frame",
-      style = "deep_frame_in_shallow_frame"
-    }
-    gui.master.side.preview = gui.master.side.preview_frame.add{
-      type = "camera",
-      position = core_dict.entities.core.position,
-      surface_index =  core_dict.entities.core.surface_index,
-      zoom = 0.65
-    }
-    gui.master.side.preview.style.natural_height=200
-    gui.master.side.preview.style.natural_width=400
-
-    gui.master.side.surface_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-control-surface-label",core_dict.entities.core.surface.name:gsub("^%l", string.upper)}
-    }
-
-
-    if core_dict.state == "off" then
-      gui.master.side.status_label = gui.master.side.frame.add{
+      name = "surface_flow",
+      style_mods = { padding = 12},
+      {
         type = "label",
-        caption = {"gui-element.bpio-status-off-label"}
-      }
-      gui.master.side.play_button = gui.master.side.frame.add{
-        type = "sprite-button",
-        name = "bpio-simulate",
-        sprite = "utility/play",
-        style = "train_schedule_action_button"
-      }
+        caption = {"gui-element.bpio-surface-show-label", saneFormatString(core_dict.entities.core.surface.name)}
+      },
+
+    }--[[@as flib.GuiElemDef]])
+    if core_dict.state ~= "off" then
+      for property,value in pairs(core_dict.properties) do
+        flib.add(gui.surface_container.surface_flow,
+        {
+          type = "label",
+          caption = {"", property.localised_name, ": ", {property.localised_unit_key, property.is_time and value/60 or value} }
+        }--[[@as flib.GuiElemDef]])
+      end
     end
+    gui.frames.bpio_tabbed_pane.add_tab(gui.frames.surface_tab, gui.surface_container.surface_flow)
 
-    if core_dict.state == "standby" then
-      gui.master.side.status_label = gui.master.side.frame.add{
-        type = "label",
-        caption = {"gui-element.bpio-status-standby-label"}
-      }
-      gui.master.side.control_panel = gui.master.side.frame.add{
+
+    gui.inventories_container = flib.add(gui.frames.bpio_tabbed_pane, 
+    {
         type = "flow",
-        direction = "horizontal"
-      }
-      gui.master.side.play_button = gui.master.side.control_panel.add{
-        type = "sprite-button",
-        name = "bpio-simulate",
-        sprite = "utility/play",
-        style = "train_schedule_action_button"
-      }
-      gui.master.side.redo_button = gui.master.side.control_panel.add{
-        type = "sprite-button",
-        name = "bpio-redo",
-        sprite = "utility/reset",
-        style = "train_schedule_action_button"
-      }
+        direction = "vertical",
+        name = "inventories_flow",
+        style_mods = { padding = 12},
+        {
+          type = "label",
+          caption = {"gui-element.bpio-blueprint-label"}
+        },
+        {
+          type = "inventory",
+          name = "blueprint_inventory",
+          slots_per_row = 1,
+          style_mods = { maximal_width = 48 }, 
+          elem_mods = { inventory = core_dict.inventories.blueprint }
+        },
+        {
+          type = "label",
+          caption = {"gui-element.bpio-building-label"}
+        },
+        {
+          type = "inventory",
+          name = "building_inventory",
+          slots_per_row = 6,
+          style_mods = { maximal_width = 40*6 }, 
+          elem_mods = { inventory = core_dict.inventories.building }
+        },
+        {
+          type = "label",
+          caption = {"gui-element.bpio-input-label"}
+        },
+        {
+          type = "inventory",
+          name = "input_inventory",
+          slots_per_row = 6,
+          style_mods = { maximal_width = 40*6 }, 
+          elem_mods = { inventory = core_dict.inventories.input }
+        },
+        {
+          type = "label",
+          caption = {"gui-element.bpio-output-label"}
+        },
+        {
+          type = "inventory",
+          name = "output_inventory",
+          slots_per_row = 6,
+          style_mods = { maximal_width = 40*6 }, 
+          elem_mods = { inventory = core_dict.inventories.output }
+        }
+      }--[[@as flib.GuiElemDef]])
+      gui.frames.bpio_tabbed_pane.add_tab(gui.frames.inventories_tab, gui.inventories_container.inventories_flow)
 
-      gui.master.side.crafting_flow = gui.master.side.frame.add{
-        type = "flow",
-        direction = "horizontal"
-      }
-      gui.master.side.crafting_flow.style.vertical_align="bottom"
-
-      gui.master.side.crafting_inputs_flow = gui.master.side.crafting_flow.add{
-        type = "flow",
-        direction = "vertical"
-      }
-
-      local invis_left = gui.master.side.crafting_flow.add{
-        type = "flow"
-      }
-      gui.master.side.crafting_arrow = gui.master.side.crafting_flow.add{
-        type = "sprite-button",
-        sprite = "utility/recipe_potential_arrow"
-      }
-      local invis_right = gui.master.side.crafting_flow.add{
-        type = "flow"
-      }
-      invis_left.style.natural_width=24
-      invis_right.style.natural_width=24
+      if core_dict.state == "standby" then
+        gui.data_container = flib.add(gui.frames.bpio_tabbed_pane, {
+          type = "flow",
+          direction = "vertical",
+          name = "data_flow",
+          style_mods = { natural_height = 400, vertically_stretchable = true, padding = 12 },
+          {
+            type = "flow",
+            name = "crafting_flow",
+            direction = "vertical",
+            style_mods = { horizontal_align = "center" },
+            {
+              type = "flow",
+              name = "crafting_inputs_flow",
+              direction = "vertical"
+            },
+            {
+              type = "sprite-button",
+              name = "crafting_arrow",
+              sprite = "utility/recipe_potential_arrow",
+              style_mods = { horizontal_align = "center" }
+            }
+          }
+        }--[[@as flib.GuiElemDef]])
+      gui.frames.bpio_tabbed_pane.add_tab(gui.frames.data_tab, gui.data_container.data_flow)
 
       local i = 1
-      local times = {{30,"s"},{1,"m"},{90,"s"},{2,"m"}}
-      for _,item_list in pairs(core_dict.history) do
-        draw_item_list(gui.master.side.crafting_inputs_flow ,item_list,times[i][1],times[i][2])
-        i = i +1
+      local times = {{0.5, "m"}, {1, "m"}, {1.5, "m"}, {2, "m"}}
+      for _, item_list in pairs(core_dict.history) do
+        if times[i] then
+          draw_item_list(gui.data_container.crafting_flow.crafting_inputs_flow, item_list, times[i][1], times[i][2])
+        end
+        i = i + 1
       end
-      draw_item_list(gui.master.side.crafting_flow,core_dict.output_list,2,"m")
+      draw_item_list(gui.data_container.crafting_flow, core_dict.output_list, 2, "m")
     end
-    
-
-    
-    gui.master.side.inventories = {}
-    gui.master.side.inventories.label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-inventories-label"},
-      style = "frame_title"
-    }
-    gui.master.side.inventories.blueprint_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-blueprint-label"}
-    }
-    gui.master.side.inventories.blueprint_inventory = gui.master.side.frame.add{
-      type = "inventory",
-      slots_per_row = 1
-    }
-    gui.master.side.inventories.building_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-building-label"}
-    }
-    gui.master.side.inventories.building_inventory = gui.master.side.frame.add{
-      type = "inventory",
-      slots_per_row = 10
-    }
-    gui.master.side.inventories.input_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-input-label"}
-    }
-    gui.master.side.inventories.input_inventory =  gui.master.side.frame.add{
-      type = "inventory",
-      slots_per_row = 6
-    }
-    gui.master.side.inventories.output_label = gui.master.side.frame.add{
-      type = "label",
-      caption = {"gui-element.bpio-output-label"}
-    }
-    gui.master.side.inventories.output_inventory = gui.master.side.frame.add{
-      type = "inventory",
-      slots_per_row = 6
-    }
-
-    gui.master.side.inventories.blueprint_inventory.inventory = core_dict.inventories.blueprint
-    gui.master.side.inventories.blueprint_inventory.style.maximal_width=48
-    gui.master.side.inventories.building_inventory.inventory = core_dict.inventories.building
-    gui.master.side.inventories.input_inventory.inventory = core_dict.inventories.input
-    gui.master.side.inventories.output_inventory.inventory = core_dict.inventories.output
   end
 end
-
-
 
 --====================
 --===== Building =====
@@ -624,7 +678,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
-  if not (event.element and event.element.name == "bpio-menu") then return end  
+  if not (event.element and event.element.name == "bpio_menu") then return end  
   
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -654,7 +708,8 @@ end)
 script.on_event(defines.events.on_gui_click, function(event)
   local sim = event.element.name == "bpio-simulate"
   local redo = event.element.name == "bpio-redo"
-  
+  if not (sim or redo) then return end
+
   local player = game.get_player(event.player_index)
   if not player then return end
   local force = player.force --[[@as LuaForce]]
@@ -730,21 +785,20 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = 0
     core.history = {}
     core.state = "booting"
+    core.properties = {}
+    
+    local source_surface = core.entities.core.surface
+    
+    for _,property in pairs(prototypes.surface_property) do
+      core.properties[property] = source_surface.get_property(property)
+    end
 
     local surface = dicts.surface --[[@as surfaceDict]]
     surface.building_force=force
     surface.core=core
     surface.size=size
-    surface.properties = {}
-
-    local source_surface = core.entities.core.surface
-    for _,property in pairs(prototypes.surface_property) do
-      surface.properties[property] = source_surface.get_property(property)
-    end
-
-
     surface.lua = game.create_surface("bpio-surface",{width=size.x,height=size.y})
-    for property,value in pairs(surface.properties) do
+    for property,value in pairs(core.properties) do
       surface.lua.set_property(property,value)
     end
     surface.lua.generate_with_lab_tiles = true
@@ -766,6 +820,7 @@ script.on_event(defines.events.on_gui_click, function(event)
         end 
       end
     end
+
   elseif redo then
     
     core.cost = nil
