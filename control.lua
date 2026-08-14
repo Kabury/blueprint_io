@@ -23,6 +23,11 @@
 ---@field check number Check number
 ---@field checks checkStatus[] Status of each check
 ---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
+---@field statistics LuaFlowStatistics
+---@field surface LuaSurface Where the core is. Saved reference for later.
+---@field surface_index number The index.
+---@field position MapPosition The place the core is in the surface.
+---@field force LuaForce Who owns the core.
 ---@field pollution number The pollution we registered during the simulation
 ---@field cost ItemWithQualityCount[] What items we used to build this core. To give back to the player.
 ---@field input ItemWithQualityCount[] What will be spawned in the surface, once.
@@ -221,11 +226,11 @@ end
 
 ---@param dict coreDict
 local function core_destroy(dict)
-  dict.inventories.blueprint.destroy()
-  dict.inventories.building.destroy()
-  dict.entities.output.die()
-  dict.entities.input.die()
-  dict.entities.core.die()
+  if dict.inventories.blueprint.valid then dict.inventories.blueprint.destroy() end
+  if dict.inventories.building.valid then dict.inventories.building.destroy() end
+  if dict.entities.output.valid then dict.entities.output.die() end
+  if dict.entities.input.valid then dict.entities.input.die() end
+  if dict.entities.core.valid then dict.entities.core.die() end
 end
 
 local function nil_surface_data()
@@ -246,7 +251,7 @@ end
 local function surface_shutdown(dict)
   game.delete_surface("bpio-surface")
   game.merge_forces("bpio-force",dict.building_force)
-  local force = dict.core.entities.core.force --[[@as LuaForce]]
+  local force = dict.force --[[@as LuaForce]]
   force.print("Shutting dimension down")
   nil_surface_data()
 end
@@ -260,19 +265,33 @@ local function surface_recall(dict)
   for _,item_format in pairs(core.cost) do
     building_inventory.insert(item_format)
   end
-  local force= core.entities.core.force --[[@as LuaForce]]
+  local force= core.force --[[@as LuaForce]]
   force.print("Refunded buildings")
   nil_surface_data()
 end
 
 --===== Functions for GUI
 
+---@param core_dict coreDict
+local function gui_kick_everyone(core_dict)
+  for viewer,opened in pairs(storage.dictionary.player) do
+    if opened == core_dict.id then
+      local lua_viewer = game.get_player(viewer)
+      if lua_viewer then
+        if lua_viewer.gui.screen["bpio_menu"] then
+          lua_viewer.gui.screen["bpio_menu"].destroy()
+        end
+      end 
+    end
+  end
+end
 
 ---@param player LuaPlayer
 ---@param core_dict coreDict
 local function draw_gui(player, core_dict)
   local valid = is_valid_core(core_dict, "both")
-  if not valid then 
+  if not valid then
+    gui_kick_everyone(core_dict)
     core_destroy(core_dict) 
     return
   end
@@ -448,8 +467,8 @@ local function draw_gui(player, core_dict)
         {
           type = "camera",
           name = "preview",
-          position = core_dict.entities.core.position,
-          surface_index = core_dict.entities.core.surface_index,
+          position = core_dict.position,
+          surface_index = core_dict.surface_index,
           zoom = 0.65,
           style_mods = { natural_width = 350, natural_height = 150 }
         }
@@ -518,7 +537,7 @@ local function draw_gui(player, core_dict)
       {
         type = "label",
         name = "surflabel",
-        caption = {"gui-element.bpio-surface-show-label", saneFormatString(core_dict.entities.core.surface.name)}
+        caption = {"gui-element.bpio-surface-show-label", saneFormatString(core_dict.surface.name)}
       },
     }--[[@as flib.GuiElemDef]])
     if core_dict.state ~= "off" then
@@ -646,6 +665,8 @@ local function redraw_everyone(core_dict)
   end
 end
 
+
+
 --====================
 --===== Building =====
 --====================
@@ -690,6 +711,7 @@ local function on_bpio_created(event)
     return
   end
 
+  ---@type coreDict
   storage.dictionary.core[core_id] = 
   {
     id=core_id,
@@ -703,10 +725,15 @@ local function on_bpio_created(event)
     inventories=
     {
       blueprint = game.create_inventory(1),
-      building  = game.create_inventory(30), 
+      building  = game.create_inventory(48), 
       input     = in_inventory,
       output    = out_inventory
-    }
+    },
+    surface = surface,
+    surface_index = surface.index,
+    position = core.position,
+    force = force,
+    statistics = force.get_item_production_statistics(surface)
   }
   site.destroy()
 end
@@ -770,7 +797,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   local turn_off = event.element.name == "bpio-turn-off"
   local turn_on = event.element.name == "bpio-turn-on"
   local to_standby = event.element.name == "bpio-to-standby"
-  if not (start_boot or turn_off or turn_on) then return end
+  if not (start_boot or turn_off or turn_on or to_standby) then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -804,7 +831,7 @@ script.on_event(defines.events.on_gui_click, function(event)
       return
     end
 
-    local source_surface = core.entities.core.surface
+    local source_surface = core.surface
     local mgs = source_surface.map_gen_settings
     local source_size = {x=mgs.width,y=mgs.height}
 
@@ -910,6 +937,9 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.checks = nil
     core.check = 0
     core.state = "standby"
+
+    redraw_everyone(core)
+
   end
 end)
 
@@ -948,31 +978,33 @@ local function on_tick(event)
       end
     end
     if surface_now == "begin_entities"then
+      ::retry::
+      local at_least_one = false
       for ghostid,ghost in pairs(surface.ghosts) do
-        ghost.revive()
-        surface.ghosts[ghostid]=nil
+        local _, revenant, proxies = ghost.revive()
+
+        at_least_one = at_least_one or (revenant and revenant.valid)
+
+        if revenant and revenant.valid then
+          if proxies and proxies.item_requests then
+            for _, item_format in pairs(proxies.item_requests) do
+              revenant.insert(item_format)
+            end
+            proxies.destroy()
+          end
+          surface.ghosts[ghostid]=nil
+        end
       end
       
       if next(surface.ghosts) then
-        queues.surface[clock+1] = "retry_entities"
-        surface.building_force.print("Not all entities were built. Retrying...")
+        if at_least_one then 
+          goto retry 
+        else
+          surface.building_force.print("The blueprint has something unbuildable. Aboring")
+        end
       else
         queues.surface[clock+1] = "initialize_logs"
         surface.building_force.print("Built entities cleanly")
-      end
-    end
-    if surface_now == "retry_entities" then
-      for ghostid,ghost in pairs(surface.ghosts) do
-        ghost.revive()
-        surface.ghosts[ghostid]=nil
-      end
-      
-      if next(surface.ghosts) then
-        queues.surface[clock+1] = "retry_entities"
-        surface.building_force.print("Not all entities were built. Retrying...")
-      else
-        queues.surface[clock+1] = "initialize_logs"
-        surface.building_force.print("Built entities after some passes.")
       end
     end
     if surface_now == "initialize_logs" then
@@ -1014,7 +1046,7 @@ local function on_tick(event)
     if surface_now == "epilog" then
       local id = surface.core.id
       local core = dicts.core[id]
-      core.inputs = as_item_quality_count(core.history[4])
+      core.input = as_item_quality_count(core.history[4])
       core.pollution = surface.lua.get_total_pollution()
       surface_shutdown(surface)
       
@@ -1028,7 +1060,12 @@ local function on_tick(event)
       ---@type coreDict
       local core = dicts.core[coreid]
       if core.state == "on" then
-        
+        if not is_valid_core(core,"both") then 
+          redraw_everyone(core)
+          core_destroy(core) 
+          goto next_core 
+        end
+
         if core.check == 0 then core.checks={"?","?","?","?"} end
         core.check = core.check+1
 
@@ -1037,18 +1074,26 @@ local function on_tick(event)
           core.checks[core.check] = "y" 
         else
           core.checks[core.check] = "n"
+          core.entities.core.damage(30,"neutral",nil,nil,core.entities.core)
+          if not is_valid_core(core,"both") then 
+            redraw_everyone(core)
+            core_destroy(core) 
+            goto next_core 
+          end
         end
 
         if core.check == 4 then
-          for _,item_format in pairs(core.inputs) do
-            core.inventories.input.remove(item_format)
+          for _,item_format in pairs(core.input) do
+            local actual_amount = core.inventories.input.remove(item_format)
+            core.statistics.on_flow(item_format,-actual_amount)
           end
           if (core.checks[1]=="y" and core.checks[2]=="y" and core.checks[3]=="y" and core.checks[4]=="y") then
             for _,item_format in pairs(core.output) do
-              core.inventories.output.insert(item_format)
+              local actual_amount = core.inventories.output.insert(item_format)
+              core.statistics.on_flow(item_format,actual_amount)
             end
-            game.print("yay")
           end
+          core.surface.pollute(core.position,core.pollution,core.entities.core)
           core.check = 0
         end
         
@@ -1058,6 +1103,7 @@ local function on_tick(event)
 
       redraw_everyone(core)
     end
+    ::next_core::
   end
 end
 
