@@ -28,6 +28,7 @@
 ---@field entities coreEntities
 ---@field inventories coreInventories
 ---@field state "off"|"booting"|"standby"|"on"
+---@field section LuaLogisticSection
 ---@field lock boolean Lock destroy/die
 ---@field check number Check number
 ---@field checks checkStatus[] Status of each check
@@ -487,14 +488,14 @@ local function draw_gui(player, core)
             },
             {
               type = "tab",
-              name = "surface_tab",
-              caption = { "gui-element.bpio-surface-label" },
+              name = "inventories_tab",
+              caption = {"gui-element.bpio-inventories-label"},
               style_mods = { vertically_stretchable = true }
             },
             {
               type = "tab",
-              name = "inventories_tab",
-              caption = {"gui-element.bpio-inventories-label"},
+              name = "surface_tab",
+              caption = { "gui-element.bpio-surface-label" },
               style_mods = { vertically_stretchable = true }
             },
             {
@@ -502,7 +503,13 @@ local function draw_gui(player, core)
               name = "data_tab",
               caption = {"gui-element.bpio-data-label"},
               style_mods = { vertically_stretchable = true }
-            }
+            },
+            {
+              type = "tab",
+              name = "circuit_tab",
+              caption = {"gui-element.bpio-circuit-label"},
+              style_mods = { vertically_stretchable = true }
+            },
           }
         }
       }
@@ -721,6 +728,55 @@ local function draw_gui(player, core)
       end
       draw_item_list(gui.data_container.outputs_flow, core.output_list, 2, "m")
     end
+
+    local qsignals = {}
+    qsignals.state = core.section.get_slot(1).value
+    qsignals.pollution = core.section.get_slot(2).value
+    if qsignals.state.quality == nil then qsignals.state.quality="normal" end 
+    if qsignals.pollution.quality == nil then qsignals.pollution.quality="normal" end 
+
+    gui.circuit_container = flib.add(gui.frames.bpio_tabbed_pane,
+    {
+      type = "flow",
+      direction = "vertical",
+      name = "circuit_flow",
+      style_mods = { padding = 12},
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "label",
+          name = "circuit_label",
+          caption = {"gui-element.bpio-circuit-state-label" },
+          style_mods = { top_margin = 10 }
+        },
+        {
+          type = "choose-elem-button",
+          name = "bpio-state-signal",
+          elem_type = "signal",
+          signal = qsignals.state
+        },
+
+      },
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "label",
+          name = "circuit_label",
+          caption = {"gui-element.bpio-circuit-pollution-label" },
+          style_mods = { top_margin = 10 }
+        },
+        {
+          type = "choose-elem-button",
+          name = "bpio-pollution-signal",
+          elem_type = "signal",
+          signal = qsignals.pollution
+        },
+      },
+      { type = "empty-widget", style = "entity_frame_filler" }
+    }--[[@as flib.GuiElemDef]])
+    gui.frames.bpio_tabbed_pane.add_tab(gui.frames.circuit_tab, gui.circuit_container.circuit_flow)
   end
 end
 
@@ -779,10 +835,14 @@ local function on_bpio_created(event)
     }
   end
   local ids
+  local section
   local building_inventory
   local in_inventory
   local out_inventory
   if core and building and input and output then
+    section = core.get_logistic_sections().get_section(1)
+    section.set_slot(1,{value={type="virtual",name="signal-S",quality="normal"},min=1,max=1})
+    section.set_slot(2,{value={type="virtual",name="signal-P",quality="normal"},min=1,max=1})
     ids = { core = core.unit_number, building = building.unit_number, input = input.unit_number, output = output.unit_number }
     building_inventory = building.get_inventory(defines.inventory.chest)
     in_inventory  = input.get_inventory(defines.inventory.chest)
@@ -795,6 +855,7 @@ local function on_bpio_created(event)
   local core_dict = {
     ids=ids,
     state="off",
+    section = section,
     entities=
     {
       core     = core,
@@ -1000,6 +1061,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.input_list = as_item_list(core.input)
     core.check = 0
     core.history = {}
+    core.section.set_slot(1,{min=2,max=2,value=core.section.get_slot(1).value})
     core.state = "booting"
     core.properties = {}
     
@@ -1038,6 +1100,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = nil
     core.checks = nil
     core.history = nil
+    core.section.set_slot(1,{min=1,max=1,value=core.section.get_slot(1).value})
     core.state = "off"
 
     redraw_everyone(core)
@@ -1045,6 +1108,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   elseif turn_on then
     core.checks = {"?","?","?","?"}
     core.check = 0
+    core.section.set_slot(1,{min=4,max=4,value=core.section.get_slot(1).value})
     core.state = "on"
     local time_slice = kl.get_or_set(storage.queue.core,event.tick+1)
     time_slice[#time_slice+1] = core.ids.core
@@ -1054,11 +1118,47 @@ script.on_event(defines.events.on_gui_click, function(event)
   elseif to_standby then
     core.checks = nil
     core.check = 0
+    core.section.set_slot(1,{min=3,max=3,value=core.section.get_slot(1).value})
     core.state = "standby"
 
     redraw_everyone(core)
 
   end
+end)
+
+script.on_event(defines.events.on_gui_elem_changed, function(event)
+  local ename = event.element.name
+  local state = ename == "bpio-state-signal"  
+  local pollution = ename == "bpio-pollution-signal"  
+
+  if not (state or pollution) then return end
+
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local dicts = storage.dictionary --[[@as dictionaryDict]]
+  if not dicts then return end
+
+  local id_core = dicts.player[player.index]
+
+  local core = dicts.core[id_core]
+  if not is_valid_core(core,"both") then
+    core_die(core)
+    return
+  end
+  
+  local where
+  if state then
+    where = 1
+  elseif pollution then
+    where = 2
+  end
+
+  local stale = core.section.get_slot(where).min
+  local qsignal = event.element.elem_value
+  if qsignal.quality == nil then qsignal.quality="normal" end 
+
+  core.section.set_slot(where,{min=stale,max=stale,value=qsignal})
 end)
 
 
@@ -1168,6 +1268,7 @@ local function on_tick(event)
           local output = surface.output_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
           surface.core.output = output
           surface.core.output_list = as_item_list(output)
+          surface.core.section.set_slot(1,{min=3,max=3,value=surface.core.section.get_slot(1).value})
           surface.core.state = "standby"
           queues.surface[clock+5] = "epilog"
         else
@@ -1182,6 +1283,8 @@ local function on_tick(event)
       local core = surface.core
       core.input = as_item_quality_count(core.history[#core.history])
       core.pollution = surface.lua.get_total_pollution()
+      local psignal = core.section.get_slot(2).value
+      core.section.set_slot(2,{value=psignal,min=core.pollution,max=core.pollution})
       surface_shutdown(surface)
       redraw_everyone(core)
     

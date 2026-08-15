@@ -50,12 +50,28 @@ local bpio_core =
   selection_box={{-2.3, -2.3}, {2.3, 2.3}},
   collision_box={{-2.3, -2.3}, {2.3, 2.3}},
   icons={{icon=pfix.."icons/core_market.png",icon_size=icon_size,scale=scale}},
+  flags=meld.append({"not-rotatable"}),
+  circuit_wire_connection_points=
+  {
+    {
+      shadow={red = util.by_pixel(24.5, 64.5), green = util.by_pixel(24.5, 64.5),}, 
+      wire={red = util.by_pixel(24.5, 64.5), green = util.by_pixel(24.5, 64.5),}
+    },
+    { shadow = {}, wire = {} },
+    { shadow = {}, wire = {} },
+    { shadow = {}, wire = {} }
+  },
+  activity_led_light = meld.delete(),
+  activity_led_sprites = meld.delete(),
   sprites = meld.overwrite({sheets ={{filename=pfix.."entity/core_market.png",frames=1,height=height,width=width,scale=scale,shift={1.5,0.25}}}})
 }
 
 data:extend({meld.meld(table.deepcopy(data.raw["constant-combinator"]["constant-combinator"]),bpio_core)})
 
 
+local circuit_connector = circuit_connector_definitions.create_single(
+  universal_connector_template,
+  { variation = 26, main_offset = util.by_pixel( 24.5,  64.5), shadow_offset = util.by_pixel( 24.5,  64.5), show_shadow = true })
 
 local special_box = 
 {
@@ -66,6 +82,7 @@ local special_box =
   minable = { mining_time = 5 },
   selection_box={{-2.3, -2.3}, {2.3, 2.3}},
   collision_box={{-2.3, -2.3}, {2.3, 2.3}},
+  circuit_connector = {circuit_connector},
   icons={{icon="_",icon_size=icon_size,scale=scale}},
   picture=
   {
@@ -89,22 +106,23 @@ meld.meld(core.building,
   flags={"no-automated-item-removal"},
   picture={layers={{filename=pfix.."entity/building_market.png"}}}
 })
+core.building.flags = meld.append({"no-automated-item-removal"})
 
 meld.meld(core.input,
 {
   name="bpio-core-input",
   icons={{icon=pfix.."icons/input_market.png"}},
-  flags={"no-automated-item-removal"},
   picture={layers={{filename=pfix.."entity/input_market.png"}}}
 })
+core.input.flags = meld.append({"no-automated-item-removal"})
 
 meld.meld(core.output,
 {
   name="bpio-core-output",
   icons={{icon=pfix.."icons/output_market.png"}},
-  flags={"no-automated-item-insertion"},
   picture={layers={{filename=pfix.."entity/output_market.png"}}}
 })
+core.output.flags = meld.append({"no-automated-item-insertion"})
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.building)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.input)})
@@ -126,6 +144,7 @@ meld.meld(blueprintable.input,
   icons={{icon=pfix.."icons/input_market.png"}},
   picture={layers={{filename=pfix.."entity/input_market.png"}}}
 })
+blueprintable.input.flags = meld.append({"no-automated-item-insertion"})
 
 meld.meld(blueprintable.output,
 {
@@ -135,7 +154,7 @@ meld.meld(blueprintable.output,
   icons={{icon=pfix.."icons/output_market.png"}},
   picture={layers={{filename=pfix.."entity/output_market.png"}}}
 })
+blueprintable.output.flags = meld.append({"no-automated-item-removal"})
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.input)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.output)})
-
