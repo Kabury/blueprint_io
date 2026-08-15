@@ -1,36 +1,38 @@
+local pfix = "__blueprint_io__/graphics/"
+
 data:extend({
-    {
+  {
     type = "item-subgroup",
     name = "bpio",
     group = "production",
     order = "blueprint-io"
-    },
-    {
+  },
+  {
     type = "item",
     name = "bpio-site",
-    icons = {{icon="__blueprint_io__/graphics/icons/market.png",icon_size = 32}},
+    icons = {{icon=pfix.."icons/core_market.png",icon_size = 32}},
     subgroup = "bpio",
     order = "bpio-site",
     place_result = "bpio-site",
     stack_size = 50
-    },
-    {
+  },
+  {
     type = "item",
-    name = "bpio-input-watcher",
-    icons = {{icon="__blueprint_io__/graphics/icons/input_market.png",icon_size = 32}},
+    name = "bpio-blueprintable-input",
+    icons = {{icon=pfix.."icons/input_market.png",icon_size = 32}},
     subgroup = "bpio",
-    order = "bpio-input-watcher",
-    place_result = "bpio-input-watcher",
+    order = "bpio-blueprintable-input",
+    place_result = "bpio-blueprintable-input",
     stack_size = 50
-    },
-    {
+  },
+  {
     type = "item",
-    name = "bpio-output-watcher",
-    icons = {{icon="__blueprint_io__/graphics/icons/output_market.png",icon_size = 32}},
+    name = "bpio-blueprintable-output",
+    icons = {{icon=pfix.."icons/output_market.png",icon_size = 32}},
     subgroup = "bpio",
-    order = "bpio-output-watcher",
-    place_result = "bpio-output-watcher",
+    order = "bpio-blueprintable-output",
+    place_result = "bpio-blueprintable-output",
     stack_size = 50
-    }
+  }
 })
 

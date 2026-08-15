@@ -1,11 +1,15 @@
 {
+  "factorio_version": "2.1",
+  "dependencies": 
+  [
+    "base >= 2.1", 
+    "klib",
+    "flib",
+    "+ kry-solid-fluids"
+  ],
   "name": "blueprint_io",
   "version": "1.0.0",
   "title": "Blueprint I/O",
   "author": "Kabury",
-  "contact": "",
-  "homepage": "",
-  "description": "Simulate a blueprint inside a pocket dimension",
-  "factorio_version": "2.1",
-  "dependencies": ["base >= 2.1", "klib" ]
+  "description": "Simulate a blueprint inside a pocket dimension"
 }

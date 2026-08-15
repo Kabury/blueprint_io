@@ -1,5 +1,12 @@
 
 local meld = require("meld")
+local pfix = "__blueprint_io__/graphics/"
+
+local height = 127
+local width = 156
+local scale = 48/32
+local icon_size = 32
+
 local created_eff =
 {
   type = "direct",
@@ -13,144 +20,118 @@ local created_eff =
   }
 }
 
-local box = {{-2.3, -2.3}, {2.3, 2.3}}
-local boxes = {selection_box=box,collision_box=box}
-
-local icon_size = 32
-local scale=48/32
-local height=127
-local width=156
-local shift={1.5,0.25}
-local inv_type = "with_custom_stack_size"
-local inv_size = 5
-local inv_prop = {stack_size_multiplier = 100, with_bar = true}
-
-local noresult = {result=meld.delete()}
-
-
 local bpio_site =
 {
   name="bpio-site",
+  minable = meld.delete(),
   created_effect=created_eff,
-  collision_box={{-7.3, -2.3}, {7.3, 2.3}},
-  icons={{icon="__blueprint_io__/graphics/icons/market.png",icon_size=icon_size,scale=scale,shift=shift}},
+  collision_box={{-7.3, -7.3}, {7.3, 2.3}},
+  icons={{icon=pfix.."icons/core_market.png",icon_size=icon_size,scale=scale}},
   picture=
   {
     layers=
     {
-      [3]={filename="__blueprint_io__/graphics/entity/market.png",height=height,width=width,scale=scale,shift=shift},
-      [1]={filename="__blueprint_io__/graphics/entity/input_market.png",height=height,width=width,scale=scale,shift={1.5-5,0.25}},
-      [4]={filename="__blueprint_io__/graphics/entity/output_market.png",height=height,width=width,scale=scale,shift={1.5+5,0.25}}
+      [1]={filename=pfix.."entity/core_market.png",height=height,width=width,scale=scale,shift={1.5,0.25}},
+      [3]={filename=pfix.."entity/building_market.png",height=height,width=width,scale=scale,shift={1.5,0.25-5}},
+      [4]={filename=pfix.."entity/input_market.png",height=height,width=width,scale=scale,shift={1.5-5,0.25}},
+      [5]={filename=pfix.."entity/output_market.png",height=height,width=width,scale=scale,shift={1.5+5,0.25}}
     }
   }
 }
+
+data:extend({meld.meld(table.deepcopy(data.raw["simple-entity-with-owner"]["simple-entity-with-owner"]),bpio_site)})
+
+
+
 local bpio_core =
 {
   name="bpio-core",
-  minable={result="bpio-site"},
-  icons={{icon="__blueprint_io__/graphics/icons/market.png",icon_size=icon_size,scale=scale,shift=shift}},
-  picture=
-  {
-    layers=
-    {
-      [1]={filename="__blueprint_io__/graphics/entity/market.png",height=height,width=width,scale=scale,shift=shift}
-    }
-  }
+  minable={ mining_time = 5, result="bpio-site" },
+  selection_box={{-2.3, -2.3}, {2.3, 2.3}},
+  collision_box={{-2.3, -2.3}, {2.3, 2.3}},
+  icons={{icon=pfix.."icons/core_market.png",icon_size=icon_size,scale=scale}},
+  sprites = meld.overwrite({sheets ={{filename=pfix.."entity/core_market.png",frames=1,height=height,width=width,scale=scale,shift={1.5,0.25}}}})
 }
-local bpio_internal_input =
+
+data:extend({meld.meld(table.deepcopy(data.raw["constant-combinator"]["constant-combinator"]),bpio_core)})
+
+
+
+local special_box = 
 {
-  name="bpio-internal-input",
-  inventory_type=inv_type,
-  inventory_size=inv_size,
-  inventory_properties={stack_size_multiplier=100},
-  collision_box={{0, 0}, {0, 0}},
-  selection_box={{-0.3, -0.3}, {0.3, 0.3}},
-  minable=noresult,
-  icons={{icon="__blueprint_io__/graphics/icons/input_market.png",icon_size=icon_size,scale=scale,shift=shift}},
+  name="_",
+  inventory_type="with_custom_stack_size",
+  inventory_size=5,
+  inventory_properties={stack_size_multiplier = 100, with_bar = true},
+  minable = { mining_time = 5 },
+  selection_box={{-2.3, -2.3}, {2.3, 2.3}},
+  collision_box={{-2.3, -2.3}, {2.3, 2.3}},
+  icons={{icon="_",icon_size=icon_size,scale=scale}},
   picture=
   {
     layers=
     {
-      [1]={filename="__core__/graphics/empty.png",height=1,width=1,scale=scale,shift=shift}
-    }
-  }
-}
-local bpio_input =
-{
-  name="bpio-input",
-  inventory_type=inv_type,
-  inventory_size=inv_size,
-  inventory_properties=inv_prop,
-  minable=noresult,
-  icons={{icon="__blueprint_io__/graphics/icons/input_market.png",icon_size=icon_size,scale=scale,shift=shift}},
-  picture=
-  {
-    layers=
-    {
-      [1]={filename="__blueprint_io__/graphics/entity/input_market.png",height=height,width=width,scale=scale,shift=shift}
-    }
-  }
-}
-local bpio_output =
-{
-  name="bpio-output",
-  inventory_type=inv_type,
-  inventory_size=inv_size,
-  inventory_properties=inv_prop,
-  minable=noresult,
-  icons={{icon="__blueprint_io__/graphics/icons/output_market.png",icon_size=icon_size,scale=scale,shift=shift}},
-  picture=
-  {
-    layers=
-    {
-      [1]={filename="__blueprint_io__/graphics/entity/output_market.png",height=height,width=width,scale=scale,shift=shift}
-    }
-  }
-}
-local bpio_input_watcher =
-{
-  name="bpio-input-watcher",
-  minable={result="bpio-input-watcher"},
-  inventory_type=inv_type,
-  inventory_size=inv_size,
-  inventory_properties=inv_prop,
-  icons={{icon="__blueprint_io__/graphics/icons/input_market.png",icon_size=icon_size,scale=scale,shift=shift}},
-  picture=
-  {
-    layers=
-    {
-      [1]={filename="__blueprint_io__/graphics/entity/input_market.png",height=height,width=width,scale=scale,shift=shift}
-    }
-  }
-}
-local bpio_output_watcher =
-{
-  name="bpio-output-watcher",
-  minable={result="bpio-output-watcher"},
-  inventory_type=inv_type,
-  inventory_size=inv_size,
-  inventory_properties=inv_prop,
-  icons={{icon="__blueprint_io__/graphics/icons/output_market.png",icon_size=icon_size,scale=scale,shift=shift}},
-  picture=
-  {
-    layers=
-    {
-      [1]={filename="__blueprint_io__/graphics/entity/output_market.png",height=height,width=width,scale=scale,shift=shift}
+      {filename="_",height=height,width=width,scale=scale,shift={1.5,0.25}}
     }
   }
 }
 
-bpio_core = meld.meld(bpio_core,boxes)
-bpio_input = meld.meld(bpio_input,boxes)
-bpio_output = meld.meld(bpio_output,boxes)
-bpio_input_watcher = meld.meld(bpio_input_watcher,boxes)
-bpio_output_watcher = meld.meld(bpio_output_watcher,boxes)
+local core = {}
+core.building = table.deepcopy(special_box)
+core.building.inventory_size=47
+core.input = table.deepcopy(special_box)
+core.output = table.deepcopy(special_box)
 
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_site)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_core)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_internal_input)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_input)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_output)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_input_watcher)})
-data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),bpio_output_watcher)})
+meld.meld(core.building,
+{
+  name="bpio-core-building",
+  icons={{icon=pfix.."icons/building_market.png"}},
+  flags={"no-automated-item-removal"},
+  picture={layers={{filename=pfix.."entity/building_market.png"}}}
+})
+
+meld.meld(core.input,
+{
+  name="bpio-core-input",
+  icons={{icon=pfix.."icons/input_market.png"}},
+  flags={"no-automated-item-removal"},
+  picture={layers={{filename=pfix.."entity/input_market.png"}}}
+})
+
+meld.meld(core.output,
+{
+  name="bpio-core-output",
+  icons={{icon=pfix.."icons/output_market.png"}},
+  flags={"no-automated-item-insertion"},
+  picture={layers={{filename=pfix.."entity/output_market.png"}}}
+})
+
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.building)})
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.input)})
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.output)})
+
+local blueprintable = {}
+blueprintable.input = table.deepcopy(special_box)
+blueprintable.output = table.deepcopy(special_box)
+
+meld.meld(blueprintable.input,
+{
+  name="bpio-blueprintable-input",
+  minable={result="bpio-blueprintable-input"},
+  flags={"no-automated-item-insertion"},
+  icons={{icon=pfix.."icons/input_market.png"}},
+  picture={layers={{filename=pfix.."entity/input_market.png"}}}
+})
+
+meld.meld(blueprintable.output,
+{
+  name="bpio-blueprintable-output",
+  minable={result="bpio-blueprintable-output"},
+  flags={"no-automated-item-removal"},
+  icons={{icon=pfix.."icons/output_market.png"}},
+  picture={layers={{filename=pfix.."entity/output_market.png"}}}
+})
+
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.input)})
+data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.output)})
 

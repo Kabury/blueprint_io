@@ -2,8 +2,18 @@
 --===== Types =====
 --=================
 
+---@alias checkStatus "?"|"y"|"n"
+---@alias playerID uint32
+---@alias time number
+---@alias coreID number
+---@alias coreStatus "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
+---@alias quality_name string
+---@alias qualityCounts table<quality_name,number>
+---@alias itemList table<data.ItemName,qualityCounts>
+
 ---@class coreEntities
 ---@field core LuaEntity The core entity with the controlling GUI
+---@field building LuaEntity The building interface
 ---@field input LuaEntity The in interface
 ---@field output LuaEntity The out interface
 
@@ -13,10 +23,8 @@
 ---@field input LuaInventory Inventory to check incoming items. Tied to the entity
 ---@field output LuaInventory Inventory to check outgoing items. Tied to the entity
 
----@alias checkStatus "?"|"y"|"n"
-
 ---@class coreDict
----@field id coreID
+---@field ids coreID[]
 ---@field entities coreEntities
 ---@field inventories coreInventories
 ---@field state "off"|"booting"|"standby"|"on"
@@ -29,14 +37,12 @@
 ---@field position MapPosition The place the core is in the surface.
 ---@field force LuaForce Who owns the core.
 ---@field pollution number The pollution we registered during the simulation
----@field cost ItemWithQualityCount[] What items we used to build this core. To give back to the player.
----@field input ItemWithQualityCount[] What will be spawned in the surface, once.
----@field output ItemWithQualityCount[] What will be spawned in the active entity every cycle.
+---@field cost ItemStackDefinition[] What items we used to build this core. To give back to the player.
+---@field input ItemStackDefinition[] What will be spawned in the surface, once.
+---@field output ItemStackDefinition[] What will be spawned in the active entity every cycle.
 ---@field input_list itemList We use this to compare each point in time when the surface is being simulated.
 ---@field output_list itemList We use this for the GUI
 ---@field history itemList[] Lists of items at different times of the surface
-
-
 
 ---@class surfaceDict
 ---@field core coreDict The core associated to the surface
@@ -45,30 +51,22 @@
 ---@field force LuaForce The lua pointer to the temporary force
 ---@field building_force LuaForce The building force
 ---@field size TilePosition Size of the blueprint
----@field input_watcher LuaEntity
----@field output_watcher LuaEntity
+---@field input_watcher LuaInventory
+---@field output_watcher LuaInventory
 ---@field ghosts LuaEntity[] The ghosts we build
 ---@field progress double How much has the surface ran
 ---@field progress_bars LuaGuiElement[] The progress bar
-
----@alias playerID uint32
 
 ---@class dictionaryDict
 ---@field core table<coreID,coreDict>
 ---@field surface surfaceDict
 ---@field player table<playerID,coreID>
 
----@alias time number
----@alias coreID number
----@alias status "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
-
 ---@class queueDict
 ---@field core table<time, coreID[]>
----@field surface table<time, status>
+---@field surface table<time, coreStatus>
 
----@alias quality_name string
----@alias qualityCounts table<quality_name,number>
----@alias itemList table<data.ItemName,qualityCounts>
+
 
 --==========================
 --===== Initialization =====
@@ -108,20 +106,24 @@ local function saneFormatString(str)
     return result
 end
 
----@param item_array ItemWithQualityCount[]
+---@param item_array ItemStackDefinition[]
 local function as_item_list(item_array)
   ---@type itemList
   local item_list = {}
   for _,item_format in pairs(item_array) do
     local item_table = kl.get_or_set(item_list,item_format.name)
-    item_table[item_format.quality] = item_table[item_format.quality] or 0 + item_format.count
+    if item_format.quality and item_format.count then
+      item_table[item_format.quality] = item_table[item_format.quality] or 0 + item_format.count
+    else
+      game.print("As item list failed")
+    end
   end
   return item_list
 end
 
 ---@param item_list itemList
 local function as_item_quality_count(item_list)
-  ---@type ItemWithQualityCount[]
+  ---@type ItemStackDefinition[]
   local item_table = {}
   for name,qcounts in pairs(item_list) do
     for quality,count in pairs(qcounts) do
@@ -203,20 +205,20 @@ local function draw_item_list(gui_element, item_list,time,unit)
   end
 end
 
----@param dict coreDict
+---@param core coreDict
 ---@param mode "entities"|"inventories"|"both"
-local function is_valid_core(dict,mode)
-  if not dict then return false end
+local function is_valid_core(core,mode)
+  if not core then return false end
   local entities_check = true
   if mode == "entities" or mode == "both" then
-    for _,entity in pairs(dict.entities) do
+    for _,entity in pairs(core.entities) do
       entities_check = entities_check and entity.valid
     end
   end
 
   local inventories_check = true
   if mode == "inventories" or mode == "both" then
-    for _,inventory in pairs(dict.inventories) do
+    for _,inventory in pairs(core.inventories) do
       inventories_check = inventories_check and inventory.valid   
     end
   end
@@ -224,13 +226,17 @@ local function is_valid_core(dict,mode)
   return entities_check and inventories_check
 end
 
----@param dict coreDict
-local function core_destroy(dict)
-  if dict.inventories.blueprint.valid then dict.inventories.blueprint.destroy() end
-  if dict.inventories.building.valid then dict.inventories.building.destroy() end
-  if dict.entities.output.valid then dict.entities.output.die() end
-  if dict.entities.input.valid then dict.entities.input.die() end
-  if dict.entities.core.valid then dict.entities.core.die() end
+---@param core coreDict
+local function core_destroy(core)
+  local ids = core.ids
+  for _,id in pairs(ids) do
+    storage.dictionary.core[id]=nil
+  end
+  if core.inventories.blueprint.valid then core.inventories.blueprint.destroy() end
+  if core.entities.output.valid   then core.entities.output.die()   end
+  if core.entities.input.valid    then core.entities.input.die()    end
+  if core.entities.building.valid then core.entities.building.die() end
+  if core.entities.core.valid     then core.entities.core.die()     end
 end
 
 local function nil_surface_data()
@@ -272,10 +278,10 @@ end
 
 --===== Functions for GUI
 
----@param core_dict coreDict
-local function gui_kick_everyone(core_dict)
+---@param core coreDict
+local function gui_kick_everyone(core)
   for viewer,opened in pairs(storage.dictionary.player) do
-    if opened == core_dict.id then
+    if opened == core.ids[1] then
       local lua_viewer = game.get_player(viewer)
       if lua_viewer then
         if lua_viewer.gui.screen["bpio_menu"] then
@@ -287,12 +293,12 @@ local function gui_kick_everyone(core_dict)
 end
 
 ---@param player LuaPlayer
----@param core_dict coreDict
-local function draw_gui(player, core_dict)
-  local valid = is_valid_core(core_dict, "both")
+---@param core coreDict
+local function draw_gui(player, core)
+  local valid = is_valid_core(core, "both")
   if not valid then
-    gui_kick_everyone(core_dict)
-    core_destroy(core_dict) 
+    gui_kick_everyone(core)
+    core_destroy(core) 
     return
   end
 
@@ -318,7 +324,7 @@ local function draw_gui(player, core_dict)
   }--[[@as flib.GuiElemDef]])
   player.opened = gui.master.bpio_menu
 
-  if core_dict.state == "booting" then
+  if core.state == "booting" then
     
     local surface = storage.dictionary.surface --[[@as surfaceDict]]
     local res = player.display_resolution 
@@ -450,15 +456,15 @@ local function draw_gui(player, core_dict)
         {
           type = "sprite",
           style_mods = { top_margin = 2 },
-          sprite =  core_dict.state == "off" and "utility/status_not_working" or 
-                    core_dict.state == "standby" and "utility/status_yellow" or
-                    core_dict.state == "on" and "utility/status_working"
+          sprite =  core.state == "off" and "utility/status_not_working" or 
+                    core.state == "standby" and "utility/status_yellow" or
+                    core.state == "on" and "utility/status_working"
         },
         {
           type = "label",
-          caption = core_dict.state == "off" and {"gui-element.bpio-status-off-label"} or 
-                    core_dict.state == "standby" and {"gui-element.bpio-status-standby-label"} or
-                    core_dict.state == "on" and {"gui-element.bpio-status-on-label"}
+          caption = core.state == "off" and {"gui-element.bpio-status-off-label"} or 
+                    core.state == "standby" and {"gui-element.bpio-status-standby-label"} or
+                    core.state == "on" and {"gui-element.bpio-status-on-label"}
         }
       },
       {
@@ -467,17 +473,17 @@ local function draw_gui(player, core_dict)
         {
           type = "camera",
           name = "preview",
-          position = core_dict.position,
-          surface_index = core_dict.surface_index,
-          zoom = 0.65,
-          style_mods = { natural_width = 350, natural_height = 150 }
+          position = core.position,
+          surface_index = core.surface_index,
+          zoom = 0.7,
+          style_mods = { natural_width = 400, natural_height = 250 }
         }
       },
       {
         type = "flow",
         direction = "horizontal",
         name = "checks_tray",
-        visible = core_dict.state == "on",
+        visible = core.state == "on",
       },
       {
         type = "flow",
@@ -488,33 +494,33 @@ local function draw_gui(player, core_dict)
           name = "bpio-start-boot",
           sprite = "utility/play",
           style = "train_schedule_action_button",
-          visible = core_dict.state == "off",
+          visible = core.state == "off",
         },
         {
           type = "sprite-button",
           name = "bpio-turn-on",
           sprite = "utility/play",
           style = "train_schedule_action_button",
-          visible = core_dict.state == "standby",
+          visible = core.state == "standby",
         },
         {
           type = "sprite-button",
           name = "bpio-turn-off",
           sprite = "utility/reset",
           style = "train_schedule_action_button",
-          visible = core_dict.state == "standby",
+          visible = core.state == "standby",
         },
         {
           type = "sprite-button",
           name = "bpio-to-standby",
           sprite = "utility/pause",
           style = "train_schedule_action_button",
-          visible = core_dict.state == "on",
+          visible = core.state == "on",
         }
       }
     }--[[@as flib.GuiElemDef]])
-    if core_dict.state == "on" then
-      for _,status in pairs(core_dict.checks) do
+    if core.state == "on" then
+      for _,status in pairs(core.checks) do
         flib.add(gui.control_container.checks_tray,
         {
           type = "sprite",
@@ -537,11 +543,11 @@ local function draw_gui(player, core_dict)
       {
         type = "label",
         name = "surflabel",
-        caption = {"gui-element.bpio-surface-show-label", saneFormatString(core_dict.surface.name)}
+        caption = {"gui-element.bpio-surface-show-label", saneFormatString(core.surface.name)}
       },
     }--[[@as flib.GuiElemDef]])
-    if core_dict.state ~= "off" then
-      for property,value in pairs(core_dict.properties) do
+    if core.state ~= "off" then
+      for property,value in pairs(core.properties) do
         flib.add(gui.surface_container.surface_flow,
         {
           type = "label",
@@ -568,7 +574,7 @@ local function draw_gui(player, core_dict)
         name = "blueprint_inventory",
         slots_per_row = 1,
         style_mods = { maximal_width = 48 }, 
-        elem_mods = { inventory = core_dict.inventories.blueprint }
+        elem_mods = { inventory = core.inventories.blueprint }
       },
       {
         type = "label",
@@ -579,7 +585,7 @@ local function draw_gui(player, core_dict)
         name = "building_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
-        elem_mods = { inventory = core_dict.inventories.building }
+        elem_mods = { inventory = core.inventories.building }
       },
       {
         type = "label",
@@ -590,7 +596,7 @@ local function draw_gui(player, core_dict)
         name = "input_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
-        elem_mods = { inventory = core_dict.inventories.input }
+        elem_mods = { inventory = core.inventories.input }
       },
       {
         type = "label",
@@ -601,13 +607,13 @@ local function draw_gui(player, core_dict)
         name = "output_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
-        elem_mods = { inventory = core_dict.inventories.output }
+        elem_mods = { inventory = core.inventories.output }
       },
       { type = "empty-widget", style = "entity_frame_filler" }
     }--[[@as flib.GuiElemDef]])
     gui.frames.bpio_tabbed_pane.add_tab(gui.frames.inventories_tab, gui.inventories_container.inventories_flow)
 
-    if core_dict.state ~= "off" then
+    if core.state ~= "off" then
       gui.data_container = flib.add(gui.frames.bpio_tabbed_pane, {
         type = "flow",
         direction = "vertical",
@@ -642,24 +648,24 @@ local function draw_gui(player, core_dict)
 
       local i = 1
       local times = {{0.5, "m"}, {1, "m"}, {1.5, "m"}, {2, "m"}}
-      for _, item_list in pairs(core_dict.history) do
+      for _, item_list in pairs(core.history) do
         if times[i] then
           draw_item_list(gui.data_container.inputs_flow, item_list, times[i][1], times[i][2])
         end
         i = i + 1
       end
-      draw_item_list(gui.data_container.outputs_flow, core_dict.output_list, 2, "m")
+      draw_item_list(gui.data_container.outputs_flow, core.output_list, 2, "m")
     end
   end
 end
 
----@param core_dict coreDict
-local function redraw_everyone(core_dict)
+---@param core coreDict
+local function redraw_everyone(core)
   for viewer,opened in pairs(storage.dictionary.player) do
-    if opened == core_dict.id then
+    if opened == core.ids[1] then
       local lua_viewer = game.get_player(viewer)
       if lua_viewer then
-        draw_gui(lua_viewer,core_dict)
+        draw_gui(lua_viewer,core)
       end 
     end
   end
@@ -667,9 +673,9 @@ end
 
 
 
---====================
---===== Building =====
---====================
+--============================
+--===== Entity Lifecycle =====
+--============================
 
 local function on_bpio_created(event)
   if event.effect_id ~= "bpio-built-event" then return end
@@ -678,8 +684,10 @@ local function on_bpio_created(event)
   local surface = site.surface
   local position = site.position
   local force = site.force
+  ---@cast force LuaForce
 
   local core
+  local building
   local input
   local output
   if position.x and position.y then
@@ -688,33 +696,38 @@ local function on_bpio_created(event)
       position={x=position.x,y=position.y},
       force=force
     }
+    building = surface.create_entity{
+      name="bpio-core-building",
+      position={x=position.x,y=position.y-5},
+      force=force
+    }
     input = surface.create_entity{
-      name="bpio-input",
+      name="bpio-core-input",
       position={x=position.x-5,y=position.y},
       force=force
     }
     output = surface.create_entity{
-      name="bpio-output",
+      name="bpio-core-output",
       position={x=position.x+5,y=position.y},
       force=force
     }
   end
-  local core_id
+  local ids
+  local building_inventory
   local in_inventory
   local out_inventory
-  if core and input and output then
-    core_id = core.unit_number
+  if core and building and input and output then
+    ids = { core = core.unit_number, building = building.unit_number, input = input.unit_number, output = output.unit_number }
+    building_inventory = building.get_inventory(defines.inventory.chest)
     in_inventory  = input.get_inventory(defines.inventory.chest)
     out_inventory = output.get_inventory(defines.inventory.chest)
   else
-    print("Something went wrong while building our entities. Remove everything and try again")
+    force.print("Something went wrong while building our entities. Remove everything and try again")
     return
   end
 
-  ---@type coreDict
-  storage.dictionary.core[core_id] = 
-  {
-    id=core_id,
+  local core_dict = {
+    ids=ids,
     state="off",
     entities=
     {
@@ -725,16 +738,20 @@ local function on_bpio_created(event)
     inventories=
     {
       blueprint = game.create_inventory(1),
-      building  = game.create_inventory(48), 
+      building  = building_inventory, 
       input     = in_inventory,
       output    = out_inventory
     },
     surface = surface,
     surface_index = surface.index,
-    position = core.position,
+    position = {x=core.position.x, y=(core.position.y or 0) -2},
     force = force,
     statistics = force.get_item_production_statistics(surface)
   }
+  for _,id in pairs(ids) do
+    storage.dictionary.core[id]=core_dict
+  end
+  
   site.destroy()
 end
 
@@ -756,12 +773,12 @@ script.on_event(defines.events.on_gui_opened, function(event)
   local player = game.get_player(event.player_index)
   if not player then return end
 
-  local id = entity.unit_number
+  local id_core = entity.unit_number
   local dicts = storage.dictionary
   if not dicts then return end
 
-  draw_gui(player, dicts.core[id])
-  dicts.player[player.index]=id
+  draw_gui(player, dicts.core[id_core])
+  dicts.player[player.index]=id_core
 end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
@@ -782,8 +799,8 @@ script.on_event(defines.events.on_player_controller_changed, function(event)
   if not dicts then return end
   if dicts.player[player.index] == nil then return end
 
-  local id = dicts.player[player.index]
-  draw_gui(player, dicts.core[id])
+  local id_core = dicts.player[player.index]
+  draw_gui(player, dicts.core[id_core])
 end)
 
 
@@ -810,9 +827,9 @@ script.on_event(defines.events.on_gui_click, function(event)
     return
   end
 
-  local id = dicts.player[player.index]
+  local id_core = dicts.player[player.index]
 
-  local core = dicts.core[id]
+  local core = dicts.core[id_core]
   if not is_valid_core(core,"both") then
     force.print("Invalid core")
     return
@@ -846,17 +863,17 @@ script.on_event(defines.events.on_gui_click, function(event)
     end
 
     local building_inventory = core.inventories.building
-    local building_wants = bp_slot.cost_to_build
-    local building_has = building_inventory.get_contents()
+    local building_wants = bp_slot.cost_to_build --[[@as ItemStackDefinition[] ]]
+    local building_has = building_inventory.get_contents() --[[@as ItemStackDefinition[] ]]
     local building_error = false
 
     local wants_list = as_item_list(building_wants)
     local has_list = as_item_list(building_has)
     
-    if not (wants_list["bpio-input-watcher"] and 
-            wants_list["bpio-input-watcher"].normal == 1 and 
-            wants_list["bpio-output-watcher"] and 
-            wants_list["bpio-output-watcher"].normal == 1) then
+    if not (wants_list["bpio-blueprintable-input"] and 
+            wants_list["bpio-blueprintable-input"].normal == 1 and 
+            wants_list["bpio-blueprintable-output"] and 
+            wants_list["bpio-blueprintable-output"].normal == 1) then
       force.print("Your blueprint has to have a single input and a single output")
       return
     end
@@ -878,7 +895,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     end 
 
     core.cost = building_wants
-    core.input = core.inventories.input.get_contents()
+    core.input = core.inventories.input.get_contents() --[[@as ItemStackDefinition[] ]]
     core.input_list = as_item_list(core.input)
     core.check = 0
     core.history = {}
@@ -929,7 +946,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = 0
     core.state = "on"
     local time_slice = kl.get_or_set(storage.queue.core,event.tick+1)
-    time_slice[#time_slice+1] = core.id
+    time_slice[#time_slice+1] = core.ids[1]
 
     redraw_everyone(core)
 
@@ -983,12 +1000,14 @@ local function on_tick(event)
       for ghostid,ghost in pairs(surface.ghosts) do
         local _, revenant, proxies = ghost.revive()
 
-        at_least_one = at_least_one or (revenant and revenant.valid)
+        if revenant and revenant.valid then
+          at_least_one = true
+        end
 
         if revenant and revenant.valid then
           if proxies and proxies.item_requests then
             for _, item_format in pairs(proxies.item_requests) do
-              revenant.insert(item_format)
+              revenant.insert(item_format --[[@as ItemStackDefinition ]])
             end
             proxies.destroy()
           end
@@ -1008,45 +1027,65 @@ local function on_tick(event)
       end
     end
     if surface_now == "initialize_logs" then
-      local input_watcher = surface.lua.find_entities_filtered{name = "bpio-input-watcher"}
-      local output_watcher = surface.lua.find_entities_filtered{name = "bpio-output-watcher"}
-      if not (input_watcher[1] and output_watcher[1]) then goto abort2 end                                                                                                                                            
-      surface.input_watcher = input_watcher[1].get_inventory(defines.inventory.chest)
-      surface.output_watcher = output_watcher[1].get_inventory(defines.inventory.chest)
-      if not (surface.input_watcher and surface.output_watcher) then goto abort2 end
-      for _,item_format in pairs(surface.core.input) do
-        surface.input_watcher.insert(item_format)
+      local input_watcher = surface.lua.find_entities_filtered{name = "bpio-blueprintable-input"}
+      local output_watcher = surface.lua.find_entities_filtered{name = "bpio-blueprintable-output"}                                                                                                                                        
+      
+      if #input_watcher==1 and #output_watcher==1 then
+        surface.input_watcher = input_watcher[1].get_inventory(defines.inventory.chest)
+        surface.output_watcher = output_watcher[1].get_inventory(defines.inventory.chest)
+
+        if surface.input_watcher and surface.input_watcher.valid and surface.output_watcher and surface.output_watcher.valid then
+          for _,item_format in pairs(surface.core.input) do
+            surface.input_watcher.insert(item_format)
+          end
+          queues.surface[clock+1] = "busy"
+          surface.building_force.print("Spawned items")
+          surface.building_force.print("Began logging...")
+        end
+      else
+        surface.building_force.print("Couldn't find the input/output boxes for some reason. Turning off")
+        surface.core.state= "off"
+        surface_shutdown(surface)
       end
-      queues.surface[clock+1] = "busy"
-      surface.building_force.print("Spawned items")
-      surface.building_force.print("Began logging...")
-      ::abort2::
     end
     if surface_now == "busy" then
       surface.progress = surface.progress + 1
       if surface.progress % ((30*60) / BAR_FREQUENCY) == 0 then
         surface.core.check = surface.core.check + 1
-        local current_input = surface.input_watcher.get_contents()
-        local current_list = as_item_list(current_input)
-        surface.core.history[surface.core.check] = items_consumed(surface.core.input_list,current_list) 
+        if surface.input_watcher and surface.input_watcher.valid then
+          local current_input = surface.input_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
+          if current_input then
+            local current_list = as_item_list(current_input)
+            surface.core.history[surface.core.check] = items_consumed(surface.core.input_list,current_list)
+          end
+        else
+          surface.building_force.print("Couldn't find the input box running. Turning off")
+          surface.core.state= "off"
+          surface_shutdown(surface)
+        end 
       end
       for _,progress_bar in pairs(surface.progress_bars) do
         if progress_bar.valid then progress_bar.value = surface.progress * BAR_FREQUENCY/(2*60*60) end 
       end
       if surface.core.check == ((2*60)/30) then
-        local output = surface.output_watcher.get_contents()
-        surface.core.output = output
-        surface.core.output_list = as_item_list(output)
-        surface.core.state = "standby"
-        queues.surface[clock+5] = "epilog"
+        if surface.output_watcher and surface.output_watcher.valid then
+          local output = surface.output_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
+          surface.core.output = output
+          surface.core.output_list = as_item_list(output)
+          surface.core.state = "standby"
+          queues.surface[clock+5] = "epilog"
+        else
+          surface.building_force.print("Couldn't find the output box running. Turning off")
+          surface.core.state= "off"
+          surface_shutdown(surface)
+        end
       else
         queues.surface[clock+5] = "busy"
       end
     end
     if surface_now == "epilog" then
-      local id = surface.core.id
-      local core = dicts.core[id]
-      core.input = as_item_quality_count(core.history[4])
+      local core = surface.core
+      core.input = as_item_quality_count(core.history[#core.history])
       core.pollution = surface.lua.get_total_pollution()
       surface_shutdown(surface)
       
@@ -1069,28 +1108,33 @@ local function on_tick(event)
         if core.check == 0 then core.checks={"?","?","?","?"} end
         core.check = core.check+1
 
-        local current_items = as_item_list(core.inventories.input.get_contents())
-        if is_super_set(current_items,core.history[core.check]) then
-          core.checks[core.check] = "y" 
-        else
-          core.checks[core.check] = "n"
-          core.entities.core.damage(30,"neutral",nil,nil,core.entities.core)
-          if not is_valid_core(core,"both") then 
-            redraw_everyone(core)
-            core_destroy(core) 
-            goto next_core 
+        local current_items = as_item_list(core.inventories.input.get_contents()  --[[@as ItemStackDefinition[] ]])
+        local current_target = core.history[core.check]
+        if current_target then
+          if is_super_set(current_items,current_target) then
+            core.checks[core.check] = "y" 
+          else
+            core.checks[core.check] = "n"
+            core.entities.core.damage(30,"neutral",nil,nil,core.entities.core)
+            if not is_valid_core(core,"both") then 
+              redraw_everyone(core)
+              core_destroy(core) 
+              goto next_core 
+            end
           end
+        else
+          core.force.print("Core "..core.ids[1].." could not find it's history entry. It might have corrupted.")
         end
-
+        
         if core.check == 4 then
           for _,item_format in pairs(core.input) do
             local actual_amount = core.inventories.input.remove(item_format)
-            core.statistics.on_flow(item_format,-actual_amount)
+            core.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],-actual_amount)
           end
           if (core.checks[1]=="y" and core.checks[2]=="y" and core.checks[3]=="y" and core.checks[4]=="y") then
             for _,item_format in pairs(core.output) do
               local actual_amount = core.inventories.output.insert(item_format)
-              core.statistics.on_flow(item_format,actual_amount)
+              core.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],actual_amount)
             end
           end
           core.surface.pollute(core.position,core.pollution,core.entities.core)
