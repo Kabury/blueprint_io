@@ -24,10 +24,11 @@
 ---@field output LuaInventory Inventory to check outgoing items. Tied to the entity
 
 ---@class coreDict
----@field ids coreID[]
+---@field ids table<string,coreID>
 ---@field entities coreEntities
 ---@field inventories coreInventories
 ---@field state "off"|"booting"|"standby"|"on"
+---@field lock boolean Lock destroy/die
 ---@field check number Check number
 ---@field checks checkStatus[] Status of each check
 ---@field properties table<LuaSurfacePropertyPrototype,double> The building surface's properties. Stored so our new surface can copy them later.
@@ -96,6 +97,13 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 
 local TILE_RESOLUTION = 32
 local BAR_FREQUENCY = 5
+local bpio_filter = 
+{
+    { filter = "name", name = "bpio-core" },
+    { filter = "name", name = "bpio-core-building" },
+    { filter = "name", name = "bpio-core-input" },
+    { filter = "name", name = "bpio-core-output" },
+}
 
 local kl = require("__klib__.runtime_stage")  
 local flib = require("__flib__.gui")
@@ -227,16 +235,34 @@ local function is_valid_core(core,mode)
 end
 
 ---@param core coreDict
-local function core_destroy(core)
-  local ids = core.ids
-  for _,id in pairs(ids) do
-    storage.dictionary.core[id]=nil
+local function core_die(core)
+  if not core.lock then
+    core.lock = true
+    core.inventories.blueprint.destroy()
+    if core.entities.output.valid   then core.entities.output.die()   else core.entities.output.destroy()   end
+    if core.entities.input.valid    then core.entities.input.die()    else core.entities.input.destroy()    end
+    if core.entities.building.valid then core.entities.building.die() else core.entities.building.destroy() end
+    if core.entities.core.valid     then core.entities.core.die()     else core.entities.core.destroy()     end
+    local ids = core.ids
+    for _,id in pairs(ids) do
+      storage.dictionary.core[id]=nil
+    end
   end
-  if core.inventories.blueprint.valid then core.inventories.blueprint.destroy() end
-  if core.entities.output.valid   then core.entities.output.die()   end
-  if core.entities.input.valid    then core.entities.input.die()    end
-  if core.entities.building.valid then core.entities.building.die() end
-  if core.entities.core.valid     then core.entities.core.die()     end
+end
+
+local function core_destroy(core)
+  if not core.lock then
+    core.lock = true
+    core.inventories.blueprint.destroy()
+    core.entities.output.destroy()
+    core.entities.input.destroy()
+    core.entities.building.destroy()
+    core.entities.core.destroy()
+    local ids = core.ids
+    for _,id in pairs(ids) do
+      storage.dictionary.core[id]=nil
+    end
+  end
 end
 
 local function nil_surface_data()
@@ -281,7 +307,7 @@ end
 ---@param core coreDict
 local function gui_kick_everyone(core)
   for viewer,opened in pairs(storage.dictionary.player) do
-    if opened == core.ids[1] then
+    if opened == core.ids.core then
       local lua_viewer = game.get_player(viewer)
       if lua_viewer then
         if lua_viewer.gui.screen["bpio_menu"] then
@@ -298,7 +324,7 @@ local function draw_gui(player, core)
   local valid = is_valid_core(core, "both")
   if not valid then
     gui_kick_everyone(core)
-    core_destroy(core) 
+    core_die(core) 
     return
   end
 
@@ -662,7 +688,7 @@ end
 ---@param core coreDict
 local function redraw_everyone(core)
   for viewer,opened in pairs(storage.dictionary.player) do
-    if opened == core.ids[1] then
+    if opened == core.ids.core then
       local lua_viewer = game.get_player(viewer)
       if lua_viewer then
         draw_gui(lua_viewer,core)
@@ -677,6 +703,7 @@ end
 --===== Entity Lifecycle =====
 --============================
 
+---@param event EventData
 local function on_bpio_created(event)
   if event.effect_id ~= "bpio-built-event" then return end
   ---@type LuaEntity
@@ -731,9 +758,10 @@ local function on_bpio_created(event)
     state="off",
     entities=
     {
-      core   = core,
-      input  = input,
-      output = output
+      core     = core,
+      building = building,
+      input    = input,
+      output   = output
     },
     inventories=
     {
@@ -757,6 +785,40 @@ end
 
 script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
 
+---@param event EventData
+local function on_bpio_mined(event)
+  local entity = event.entity
+  if not (entity and entity.valid) then return end
+  local is_core = entity.name == "bpio-core"
+  local is_aide = entity.name == "bpio-core-building" or entity.name == "bpio-core-input" or entity.name == "bpio-core-output"
+  if not (is_core or is_aide) then return end
+
+  local core = storage.dictionary.core[entity.unit_number]
+  if not core then return end
+
+  if is_aide then event.buffer.insert({name = "bpio-site", count = 1}) end
+
+
+  gui_kick_everyone(core)
+  core_destroy(core)
+end
+
+script.on_event(defines.events.on_player_mined_entity, on_bpio_mined,bpio_filter)
+script.on_event(defines.events.on_robot_mined_entity, on_bpio_mined,bpio_filter)
+
+---@param event EventData
+local function on_bpio_killed(event)
+  local entity = event.entity
+  if not (entity and entity.valid and entity.unit_number) then return end
+
+  local core = storage.dictionary.core[entity.unit_number]
+  if not core then return end
+
+  gui_kick_everyone(core)
+  core_die(core)
+end
+
+script.on_event(defines.events.on_entity_died, on_bpio_killed)
 
 
 --=========================
@@ -946,7 +1008,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = 0
     core.state = "on"
     local time_slice = kl.get_or_set(storage.queue.core,event.tick+1)
-    time_slice[#time_slice+1] = core.ids[1]
+    time_slice[#time_slice+1] = core.ids.core
 
     redraw_everyone(core)
 
@@ -1100,8 +1162,8 @@ local function on_tick(event)
       local core = dicts.core[coreid]
       if core.state == "on" then
         if not is_valid_core(core,"both") then 
-          redraw_everyone(core)
-          core_destroy(core) 
+          gui_kick_everyone(core)
+          core_die(core)
           goto next_core 
         end
 
@@ -1117,13 +1179,13 @@ local function on_tick(event)
             core.checks[core.check] = "n"
             core.entities.core.damage(30,"neutral",nil,nil,core.entities.core)
             if not is_valid_core(core,"both") then 
-              redraw_everyone(core)
-              core_destroy(core) 
+              gui_kick_everyone(core)
+              core_die(core)
               goto next_core 
             end
           end
         else
-          core.force.print("Core "..core.ids[1].." could not find it's history entry. It might have corrupted.")
+          core.force.print("Core "..core.ids.core.." could not find it's history entry. It might have corrupted.")
         end
         
         if core.check == 4 then

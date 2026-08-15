@@ -110,6 +110,10 @@ data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.input)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.output)})
 
+data.raw.container["bpio-core-building"].minable.result=nil
+data.raw.container["bpio-core-input"].minable.result=nil
+data.raw.container["bpio-core-output"].minable.result=nil
+
 local blueprintable = {}
 blueprintable.input = table.deepcopy(special_box)
 blueprintable.output = table.deepcopy(special_box)
