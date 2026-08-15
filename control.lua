@@ -297,9 +297,48 @@ local function surface_recall(dict)
   for _,item_format in pairs(core.cost) do
     building_inventory.insert(item_format)
   end
+  core.state="off"
   local force= core.force --[[@as LuaForce]]
   force.print("Refunded buildings")
   nil_surface_data()
+end
+
+---@param plan BlueprintInsertPlan
+---@param entity LuaEntity
+local function fulfill_plan(plan,entity)
+  local item_name = plan.id.name
+  local quality = plan.id.quality
+  if quality == nil then quality = "normal" end
+
+  local position = plan.items
+
+  if position.in_inventory then
+    for _, place in pairs(position.in_inventory) do
+      local inventory = entity.get_inventory(place.inventory)
+      if inventory and inventory.valid then
+        local stack = inventory[place.stack + 1] --[[@as LuaItemStack]]
+        if stack and stack.valid and not stack.valid_for_read then
+          stack.set_stack({
+            name = item_name,
+            count = place.count or 1,
+            quality = quality
+          })
+        end
+      end
+    end
+  end
+
+  if position.grid_count and position.grid_count > 0 then
+    local grid = entity.grid
+    if grid then
+      for i = 1, position.grid_count do
+        grid.put({
+          name = item_name,
+          quality = quality
+        })
+      end
+    end
+  end
 end
 
 --===== Functions for GUI
@@ -1060,32 +1099,29 @@ local function on_tick(event)
       ::retry::
       local at_least_one = false
       for ghostid,ghost in pairs(surface.ghosts) do
-        local _, revenant, proxies = ghost.revive()
+        local _, revenant, proxy = ghost.revive()
 
         if revenant and revenant.valid then
           at_least_one = true
-        end
-
-        if revenant and revenant.valid then
-          if proxies and proxies.item_requests then
-            for _, item_format in pairs(proxies.item_requests) do
-              revenant.insert(item_format --[[@as ItemStackDefinition ]])
+          if proxy then
+            for _,plan in pairs(proxy.insert_plan) do
+              fulfill_plan(plan,revenant)
             end
-            proxies.destroy()
+            proxy.destroy()
           end
           surface.ghosts[ghostid]=nil
         end
       end
-      
       if next(surface.ghosts) then
         if at_least_one then 
           goto retry 
         else
-          surface.building_force.print("The blueprint has something unbuildable. Aboring")
+          surface.building_force.print("The blueprint has something unbuildable. Recalling")
+          surface_recall(surface)
         end
       else
         queues.surface[clock+1] = "initialize_logs"
-        surface.building_force.print("Built entities cleanly")
+        surface.building_force.print("Built entities")
       end
     end
     if surface_now == "initialize_logs" then
@@ -1105,9 +1141,8 @@ local function on_tick(event)
           surface.building_force.print("Began logging...")
         end
       else
-        surface.building_force.print("Couldn't find the input/output boxes for some reason. Turning off")
-        surface.core.state= "off"
-        surface_shutdown(surface)
+        surface.building_force.print("Couldn't find the input/output boxes for some reason. Recalling")
+        surface_recall(surface)
       end
     end
     if surface_now == "busy" then
@@ -1121,9 +1156,8 @@ local function on_tick(event)
             surface.core.history[surface.core.check] = items_consumed(surface.core.input_list,current_list)
           end
         else
-          surface.building_force.print("Couldn't find the input box running. Turning off")
-          surface.core.state= "off"
-          surface_shutdown(surface)
+          surface.building_force.print("Couldn't find the input box running. Recalling")
+          surface_recall(surface)
         end 
       end
       for _,progress_bar in pairs(surface.progress_bars) do
@@ -1137,9 +1171,8 @@ local function on_tick(event)
           surface.core.state = "standby"
           queues.surface[clock+5] = "epilog"
         else
-          surface.building_force.print("Couldn't find the output box running. Turning off")
-          surface.core.state= "off"
-          surface_shutdown(surface)
+          surface.building_force.print("Couldn't find the output box running. Recalling")
+          surface_recall(surface)
         end
       else
         queues.surface[clock+5] = "busy"
@@ -1150,7 +1183,6 @@ local function on_tick(event)
       core.input = as_item_quality_count(core.history[#core.history])
       core.pollution = surface.lua.get_total_pollution()
       surface_shutdown(surface)
-      
       redraw_everyone(core)
     
     end
