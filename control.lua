@@ -972,6 +972,7 @@ local function on_bpio_mined(event)
 
 
   gui_kick_everyone(core)
+  if storage.dictionary.surface.lock then surface_recall(storage.dictionary.surface) end
   core_destroy(core)
 end
 
@@ -987,6 +988,7 @@ local function on_bpio_killed(event)
   if not core then return end
 
   gui_kick_everyone(core)
+  if storage.dictionary.surface.lock then surface_shutdown(storage.dictionary.surface) end
   core_die(core)
 end
 
