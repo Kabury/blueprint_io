@@ -6,7 +6,7 @@
 ---@alias playerID uint32
 ---@alias time number
 ---@alias coreID number
----@alias coreStatus "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
+---@alias surfaceStatus "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
 ---@alias quality_name string
 ---@alias qualityCounts table<quality_name,number>
 ---@alias itemList table<data.ItemName,qualityCounts>
@@ -46,9 +46,20 @@
 ---@field output_list itemList We use this for the GUI
 ---@field history itemList[] Lists of items at different times of the surface
 
+
+---@class planPlaces
+---@field inventory table<uint64,table<defines.inventory,LuaInventory>>
+---@field grids table<uint64,LuaEquipmentGrid>
+
+
+---@class planMemory
+---@field places planPlaces
+---@field beggining ItemStackDefinition[]
+---@field ending ItemStackDefinition[]
+
 ---@class surfaceDict
 ---@field core coreDict The core associated to the surface
----@field status string? What stage the surface is on
+---@field lock boolean What stage the surface is on
 ---@field lua LuaSurface The lua pointer to the surface
 ---@field force LuaForce The lua pointer to the temporary force
 ---@field building_force LuaForce The building force
@@ -56,6 +67,7 @@
 ---@field input_watcher LuaInventory
 ---@field output_watcher LuaInventory
 ---@field ghosts LuaEntity[] The ghosts we build
+---@field plan_memory planMemory
 ---@field progress double How much has the surface ran
 ---@field progress_bars LuaGuiElement[] The progress bar
 
@@ -66,7 +78,7 @@
 
 ---@class queueDict
 ---@field core table<time, coreID[]>
----@field surface table<time, coreStatus>
+---@field surface table<time, surfaceStatus>
 
 
 
@@ -75,7 +87,7 @@
 --==========================
 
 local function init_storage()
-  storage.dictionary = { surface = {}, core = {}, player = {} }
+  storage.dictionary = { surface = { lock = false }, core = {}, player = {} }
   storage.queue = { surface = {}, core = {} }
 end
 
@@ -122,7 +134,7 @@ local function as_item_list(item_array)
   for _,item_format in pairs(item_array) do
     local item_table = kl.get_or_set(item_list,item_format.name)
     if item_format.quality and item_format.count then
-      item_table[item_format.quality] = item_table[item_format.quality] or 0 + item_format.count
+      item_table[item_format.quality] = (item_table[item_format.quality] or 0) + item_format.count
     else
       game.print("As item list failed")
     end
@@ -162,6 +174,7 @@ end
 ---@param before itemList
 ---@param after itemList
 local function items_consumed(before,after)
+  ---@type itemList
   local difference = {}
 	for name,qcounts in pairs(before) do
     difference[name] = {}
@@ -170,48 +183,36 @@ local function items_consumed(before,after)
       difference[name][quality] = count - (after[name][quality] or 0)
     end
 	end
+
+  for name,qcounts in pairs(difference) do
+    for quality,count in pairs(qcounts) do
+      if count == 0 then
+        difference[name][quality] = nil
+      end
+    end
+  end
   return difference
 end
 
----@param gui_element LuaGuiElement
----@param item_list itemList
----@param time? number
----@param unit? "s"|"m"|"h"
-local function draw_item_list(gui_element, item_list,time,unit)
-  local flow = gui_element.add{
-    type="flow",
-    direction = "horizontal"
-  }
-  if time and unit then
-    local time_flow =     flow.add{
-      type = "flow",
-      direction = "horizontal"
-    }
-    local button = time_flow.add{
-      type = "sprite-button",
-      sprite = "utility/clock",
-      number = time
-    }
-    local new_text = time_flow.add{
-      type = "label",
-      caption = unit,
-      font = "count-font"
-    }
-    new_text.style.font = "count-font"
-    new_text.style.top_margin=20
-    new_text.style.left_margin=-7
-    time_flow.style.natural_width= 48
-  end
-  for item,qcount in pairs(item_list) do
-    for quality,count in pairs(qcount) do
-      flow.add{
-        type = "sprite-button",
-        sprite = "item/"..item,
-        quality = quality,
-        number = count
-      }
+---@param first itemList
+---@param second itemList
+local function add_item_lists(first,second)
+  ---@type itemList
+  local both = {}
+  for name,qcounts in pairs(first) do
+    both[name] = {}
+    for quality,count in pairs(qcounts) do
+      both[name][quality] = count
     end
   end
+
+  for name,qcounts in pairs(second) do
+    local temp_name = kl.get_or_set(both,name)
+    for quality,count in pairs(qcounts) do
+      both[name][quality] = (temp_name[quality] or 0) + count
+    end
+  end
+  return both
 end
 
 ---@param core coreDict
@@ -267,16 +268,18 @@ local function core_destroy(core)
 end
 
 local function nil_surface_data()
-  local data = storage.dictionary.surface
-  data.core = nil
-  data.status = nil
-  data.lua = nil
-  data.force = nil
-  data.building_force = nil
-  data.size = nil
-  data.ghosts = nil
-  data.progress = nil
-  data.progress_bars = nil
+  ---@type surfaceDict
+  local surface = storage.dictionary.surface
+  surface.core = nil
+  surface.lock = false
+  surface.lua = nil
+  surface.force = nil
+  surface.building_force = nil
+  surface.size = nil
+  surface.ghosts = nil
+  surface.plan_memory = nil
+  surface.progress = nil
+  surface.progress_bars = nil
   storage.queue.surface = {}
 end
 
@@ -306,7 +309,9 @@ end
 
 ---@param plan BlueprintInsertPlan
 ---@param entity LuaEntity
-local function fulfill_plan(plan,entity)
+---@param memory planMemory
+local function begin_plan(plan,entity,memory)
+  if not entity then return end
   local item_name = plan.id.name
   local quality = plan.id.quality
   if quality == nil then quality = "normal" end
@@ -317,13 +322,13 @@ local function fulfill_plan(plan,entity)
     for _, place in pairs(position.in_inventory) do
       local inventory = entity.get_inventory(place.inventory)
       if inventory and inventory.valid then
+        local entityInventories = kl.get_or_set(memory.places.inventory,entity.unit_number)
+        entityInventories[place.inventory] = inventory
         local stack = inventory[place.stack + 1] --[[@as LuaItemStack]]
         if stack and stack.valid and not stack.valid_for_read then
-          stack.set_stack({
-            name = item_name,
-            count = place.count or 1,
-            quality = quality
-          })
+          local item_format = { name = item_name,  count = place.count or 1,  quality = quality }
+          stack.set_stack(item_format)
+          memory.beggining[#memory.beggining+1] = item_format
         end
       end
     end
@@ -332,17 +337,84 @@ local function fulfill_plan(plan,entity)
   if position.grid_count and position.grid_count > 0 then
     local grid = entity.grid
     if grid then
+      memory.places.grids[entity.unit_number] = grid
       for i = 1, position.grid_count do
-        grid.put({
-          name = item_name,
-          quality = quality
-        })
+        local item_format = { name = item_name,  count = 1,  quality = quality }
+        grid.put(item_format)
+        memory.beggining[#memory.beggining+1] = item_format
       end
     end
   end
 end
 
+---@param memory planMemory
+local function end_plan(memory)
+
+  for _,entity in pairs(memory.places.inventory) do
+    for _,inventory in pairs(entity) do
+      if inventory.valid then
+        local item_array = inventory.get_contents()
+        for _,item_format in pairs(item_array) do
+          memory.ending[#memory.ending+1] = item_format --[[@as ItemStackDefinition]]
+        end
+      end
+    end
+  end
+
+  for _,grid in pairs(memory.places.grids) do
+    local item_array = grid.get_contents()
+    for _,item_format in pairs(item_array) do
+      memory.ending[#memory.ending+1] = item_format --[[@as ItemStackDefinition]]
+    end
+  end
+
+end
+
 --===== Functions for GUI
+
+
+
+---@param gui_element LuaGuiElement
+---@param item_list itemList
+---@param time? number
+---@param unit? "s"|"m"|"h"
+local function draw_item_list(gui_element, item_list,time,unit)
+  local flow = gui_element.add{
+    type="flow",
+    direction = "horizontal"
+  }
+  if time and unit then
+    local time_flow =     flow.add{
+      type = "flow",
+      direction = "horizontal"
+    }
+    local button = time_flow.add{
+      type = "sprite-button",
+      sprite = "utility/clock",
+      number = time
+    }
+    local new_text = time_flow.add{
+      type = "label",
+      caption = unit,
+      font = "count-font"
+    }
+    new_text.style.font = "count-font"
+    new_text.style.top_margin=20
+    new_text.style.left_margin=-7
+    time_flow.style.natural_width= 48
+  end
+  for item,qcount in pairs(item_list) do
+    for quality,count in pairs(qcount) do
+      flow.add{
+        type = "sprite-button",
+        sprite = "item/"..item,
+        quality = quality,
+        number = count
+      }
+    end
+  end
+end
+
 
 ---@param core coreDict
 local function gui_kick_everyone(core)
@@ -842,7 +914,7 @@ local function on_bpio_created(event)
   if core and building and input and output then
     section = core.get_logistic_sections().get_section(1)
     section.set_slot(1,{value={type="virtual",name="signal-S",quality="normal"},min=1,max=1})
-    section.set_slot(2,{value={type="virtual",name="signal-P",quality="normal"},min=1,max=1})
+    section.set_slot(2,{value={type="virtual",name="signal-P",quality="normal"},min=0,max=0})
     ids = { core = core.unit_number, building = building.unit_number, input = input.unit_number, output = output.unit_number }
     building_inventory = building.get_inventory(defines.inventory.chest)
     in_inventory  = input.get_inventory(defines.inventory.chest)
@@ -984,7 +1056,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   if not (force and force.print) then return end
 
   local dicts = storage.dictionary --[[@as dictionaryDict]]
-  if not (dicts and dicts.surface.status == nil) then
+  if (not dicts) or dicts.surface.lock then
     force.print("Another blueprint core is processing. Wait until it finishes.")
     return
   end
@@ -1050,12 +1122,14 @@ script.on_event(defines.events.on_gui_click, function(event)
       return
     end
 
+
     if building_error then
       force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
     else
       force.print("Used items needed to build")
     end 
 
+    
     core.cost = building_wants
     core.input = core.inventories.input.get_contents() --[[@as ItemStackDefinition[] ]]
     core.input_list = as_item_list(core.input)
@@ -1070,6 +1144,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     end
 
     local surface = dicts.surface --[[@as surfaceDict]]
+    surface.lock = true
     surface.building_force=force
     surface.core=core
     surface.size=target_size
@@ -1100,6 +1175,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = nil
     core.checks = nil
     core.history = nil
+    core.section.set_slot(2,{value=core.section.get_slot(2).value,min=core.pollution,max=core.pollution})
     core.section.set_slot(1,{min=1,max=1,value=core.section.get_slot(1).value})
     core.state = "off"
 
@@ -1184,6 +1260,8 @@ local function on_tick(event)
   if surface_now then
     local surface = dicts.surface --[[@as surfaceDict]]
     if surface_now == "build_ghosts" then
+      surface.plan_memory = { places = { inventory = {}, grids = {} }, beggining = {}, ending = {} }
+      
       local blueprint = surface.core.inventories.blueprint[1]
       local ghosts = blueprint.build_blueprint{surface=surface.lua,force=surface.force, position={0,0}}
       if not next(ghosts) then 
@@ -1205,7 +1283,7 @@ local function on_tick(event)
           at_least_one = true
           if proxy then
             for _,plan in pairs(proxy.insert_plan) do
-              fulfill_plan(plan,revenant)
+              begin_plan(plan,revenant,surface.plan_memory)
             end
             proxy.destroy()
           end
@@ -1266,6 +1344,7 @@ local function on_tick(event)
       if surface.core.check == ((2*60)/30) then
         if surface.output_watcher and surface.output_watcher.valid then
           local output = surface.output_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
+          end_plan(surface.plan_memory)
           surface.core.output = output
           surface.core.output_list = as_item_list(output)
           surface.core.section.set_slot(1,{min=3,max=3,value=surface.core.section.get_slot(1).value})
@@ -1281,13 +1360,16 @@ local function on_tick(event)
     end
     if surface_now == "epilog" then
       local core = surface.core
+      local stolen_goods = items_consumed(
+        as_item_list(surface.plan_memory.beggining),
+        as_item_list(surface.plan_memory.ending)
+        )
+      core.history[#core.history] = add_item_lists(core.history[#core.history],stolen_goods)
       core.input = as_item_quality_count(core.history[#core.history])
       core.pollution = surface.lua.get_total_pollution()
-      local psignal = core.section.get_slot(2).value
-      core.section.set_slot(2,{value=psignal,min=core.pollution,max=core.pollution})
+      core.section.set_slot(2,{value=core.section.get_slot(2).value,min=core.pollution*10,max=core.pollution*10})
       surface_shutdown(surface)
       redraw_everyone(core)
-    
     end
   end
 
