@@ -1167,6 +1167,11 @@ script.on_event(defines.events.on_gui_click, function(event)
 
   elseif turn_off then
     
+    local building_inventory = core.inventories.building
+    for _,item_format in pairs(core.cost) do
+      building_inventory.insert(item_format)
+    end
+
     core.cost = nil
     core.input = nil
     core.input_list = nil
@@ -1175,6 +1180,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     core.check = nil
     core.checks = nil
     core.history = nil
+
     core.section.set_slot(2,{value=core.section.get_slot(2).value,min=core.pollution,max=core.pollution})
     core.section.set_slot(1,{min=1,max=1,value=core.section.get_slot(1).value})
     core.state = "off"
@@ -1348,7 +1354,6 @@ local function on_tick(event)
           surface.core.output = output
           surface.core.output_list = as_item_list(output)
           surface.core.section.set_slot(1,{min=3,max=3,value=surface.core.section.get_slot(1).value})
-          surface.core.state = "standby"
           queues.surface[clock+5] = "epilog"
         else
           surface.building_force.print("Couldn't find the output box running. Recalling")
@@ -1360,6 +1365,7 @@ local function on_tick(event)
     end
     if surface_now == "epilog" then
       local core = surface.core
+      core.state = "standby"
       local stolen_goods = items_consumed(
         as_item_list(surface.plan_memory.beggining),
         as_item_list(surface.plan_memory.ending)
