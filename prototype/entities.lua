@@ -49,8 +49,10 @@ local bpio_core =
   minable={ mining_time = 5, result="bpio-site" },
   selection_box={{-2.3, -2.3}, {2.3, 2.3}},
   collision_box={{-2.3, -2.3}, {2.3, 2.3}},
+  placeable_by = {count=1, item="bpio-site"},
   icons={{icon=pfix.."icons/core_market.png",icon_size=icon_size,scale=scale}},
-  flags=meld.append({"not-rotatable"}),
+  flags=meld.append({"not-rotatable","not-blueprintable"}),
+  corpse = "buffer-chest-remnants", 
   circuit_wire_connection_points=
   {
     {
@@ -102,27 +104,32 @@ core.output = table.deepcopy(special_box)
 meld.meld(core.building,
 {
   name="bpio-core-building",
+  placeable_by = {count=1, item="bpio-site"},
+  corpse = "storage-chest-remnants", 
   icons={{icon=pfix.."icons/building_market.png"}},
-  flags={"no-automated-item-removal"},
   picture={layers={{filename=pfix.."entity/building_market.png"}}}
 })
-core.building.flags = meld.append({"no-automated-item-removal"})
+core.building.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 
 meld.meld(core.input,
 {
   name="bpio-core-input",
+  placeable_by = {count=1, item="bpio-site"},
+  corpse = "requester-chest-remnants", 
   icons={{icon=pfix.."icons/input_market.png"}},
   picture={layers={{filename=pfix.."entity/input_market.png"}}}
 })
-core.input.flags = meld.append({"no-automated-item-removal"})
+core.input.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 
 meld.meld(core.output,
 {
   name="bpio-core-output",
+  placeable_by = {count=1, item="bpio-site"},
+  corpse = "passive-provider-chest-remnants", 
   icons={{icon=pfix.."icons/output_market.png"}},
   picture={layers={{filename=pfix.."entity/output_market.png"}}}
 })
-core.output.flags = meld.append({"no-automated-item-insertion"})
+core.output.flags = meld.append({"no-automated-item-insertion","not-blueprintable"})
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.building)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.input)})
@@ -140,6 +147,7 @@ meld.meld(blueprintable.input,
 {
   name="bpio-blueprintable-input",
   minable={result="bpio-blueprintable-input"},
+  corpse = "requester-chest-remnants", 
   flags={"no-automated-item-insertion"},
   icons={{icon=pfix.."icons/input_market.png"}},
   picture={layers={{filename=pfix.."entity/input_market.png"}}}
@@ -150,6 +158,7 @@ meld.meld(blueprintable.output,
 {
   name="bpio-blueprintable-output",
   minable={result="bpio-blueprintable-output"},
+  corpse = "passive-provider-chest-remnants", 
   flags={"no-automated-item-removal"},
   icons={{icon=pfix.."icons/output_market.png"}},
   picture={layers={{filename=pfix.."entity/output_market.png"}}}

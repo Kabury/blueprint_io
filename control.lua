@@ -6,7 +6,7 @@
 ---@alias playerID uint32
 ---@alias time number
 ---@alias coreID number
----@alias surfaceStatus "build_ghosts"|"begin_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
+---@alias surfaceStatus "build_ghosts"|"build_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog"
 ---@alias quality_name string
 ---@alias qualityCounts table<quality_name,number>
 ---@alias itemList table<data.ItemName,qualityCounts>
@@ -311,7 +311,6 @@ end
 ---@param entity LuaEntity
 ---@param memory planMemory
 local function begin_plan(plan,entity,memory)
-  if not entity then return end
   local item_name = plan.id.name
   local quality = plan.id.quality
   if quality == nil then quality = "normal" end
@@ -321,14 +320,17 @@ local function begin_plan(plan,entity,memory)
   if position.in_inventory then
     for _, place in pairs(position.in_inventory) do
       local inventory = entity.get_inventory(place.inventory)
-      if inventory and inventory.valid then
+      if inventory then
         local entityInventories = kl.get_or_set(memory.places.inventory,entity.unit_number)
         entityInventories[place.inventory] = inventory
         local stack = inventory[place.stack + 1] --[[@as LuaItemStack]]
-        if stack and stack.valid and not stack.valid_for_read then
+        if stack and not stack.valid_for_read then
           local item_format = { name = item_name,  count = place.count or 1,  quality = quality }
           stack.set_stack(item_format)
           memory.beggining[#memory.beggining+1] = item_format
+          if entity.name == "bpio-blueprintable-output" then 
+            memory.beggining[#memory.beggining+1] = item_format 
+          end
         end
       end
     end
@@ -418,6 +420,7 @@ end
 
 ---@param core coreDict
 local function gui_kick_everyone(core)
+  if not core then return end
   for viewer,opened in pairs(storage.dictionary.player) do
     if opened == core.ids.core then
       local lua_viewer = game.get_player(viewer)
@@ -425,7 +428,8 @@ local function gui_kick_everyone(core)
         if lua_viewer.gui.screen["bpio_menu"] then
           lua_viewer.gui.screen["bpio_menu"].destroy()
         end
-      end 
+      end
+      storage.dictionary.player[viewer]=nil
     end
   end
 end
@@ -465,11 +469,13 @@ local function draw_gui(player, core)
   if core.state == "booting" then
     
     local surface = storage.dictionary.surface --[[@as surfaceDict]]
-    local res = player.display_resolution 
+    local raw = player.display_resolution
+    local adj = player.display_scale * player.display_density_scale
+    local resolution = {width=raw.width/adj, height=raw.height/adj}
     local target_zoom
     if surface.size.x and surface.size.y then 
-      local zoom_x = (res.width - 350) / (surface.size.x * TILE_RESOLUTION)
-      local zoom_y = (res.height - 350) / (surface.size.y * TILE_RESOLUTION)
+      local zoom_x = (resolution.width - 350) / (surface.size.x * TILE_RESOLUTION)
+      local zoom_y = (resolution.height - 350) / (surface.size.y * TILE_RESOLUTION)
       target_zoom = math.min(zoom_x, zoom_y)
     else
       target_zoom = 1
@@ -496,7 +502,7 @@ local function draw_gui(player, core)
       {
           type = "progressbar",
           name = "progress_bar",
-          style_mods = { natural_width = math.floor((res.width - 300) ), bar_width = 12 }
+          style_mods = { natural_width = math.floor((resolution.width - 300) ), bar_width = 12 }
       },
       {
         type = "frame",
@@ -506,7 +512,7 @@ local function draw_gui(player, core)
           position = {0, 0},
           surface_index = surface.lua.index,
           zoom = target_zoom,
-          style_mods = { natural_width = res.width - 300, natural_height = res.height - 300 }
+          style_mods = { natural_width = resolution.width - 300, natural_height = resolution.height - 300 }
         }
       }
     })
@@ -533,7 +539,7 @@ local function draw_gui(player, core)
           },
           {
             type = "inventory",
-            name = "player_inventory",
+            name = "bpio_player_inventory",
             slots_per_row = prototypes.utility_constants.inventory_width,
             elem_mods = { inventory = player.get_main_inventory() }
           }
@@ -715,7 +721,7 @@ local function draw_gui(player, core)
       },
       {
         type = "inventory",
-        name = "blueprint_inventory",
+        name = "bpio_blueprint_inventory",
         slots_per_row = 1,
         style_mods = { maximal_width = 48 }, 
         elem_mods = { inventory = core.inventories.blueprint }
@@ -726,7 +732,7 @@ local function draw_gui(player, core)
       },
       {
         type = "inventory",
-        name = "building_inventory",
+        name = "bpio_building_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
         elem_mods = { inventory = core.inventories.building }
@@ -737,7 +743,7 @@ local function draw_gui(player, core)
       },
       {
         type = "inventory",
-        name = "input_inventory",
+        name = "bpio_input_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
         elem_mods = { inventory = core.inventories.input }
@@ -748,7 +754,7 @@ local function draw_gui(player, core)
       },
       {
         type = "inventory",
-        name = "output_inventory",
+        name = "bpio_output_inventory",
         slots_per_row = 6,
         style_mods = { maximal_width = 40*6 }, 
         elem_mods = { inventory = core.inventories.output }
@@ -865,6 +871,74 @@ local function redraw_everyone(core)
 end
 
 
+---@param event EventData
+local function adjust_gui_size(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local id_core = storage.dictionary.player[player.index]
+  if id_core then
+    local core = storage.dictionary.core[id_core]
+    if core and player.gui.screen["bpio_menu"] then
+      draw_gui(player, core)
+    end
+  end
+end
+
+script.on_event(defines.events.on_player_display_resolution_changed, adjust_gui_size)
+script.on_event(defines.events.on_player_display_scale_changed, adjust_gui_size)
+script.on_event(defines.events.on_player_display_density_scale_changed, adjust_gui_size)
+
+---@param event EventData.on_gui_inventory_action
+---@param from LuaInventory
+---@param to LuaInventory
+local function handle_click(event,from,to)
+  local slot = from[event.slot]
+  if not slot then return end
+  
+  if event.control then
+    if slot.valid_for_read then
+      to.transfer_from_inventory(from,{ name = slot.name, quality =  slot.quality.name or "normal", comparator = "=" })
+    else
+      to.transfer_from_inventory(from)
+    end
+  elseif event.shift then
+    if slot.valid_for_read then
+      to.transfer_from_stack(slot)
+    end
+  end
+end
+
+script.on_event(defines.events.on_gui_inventory_action, function(event)
+  if not event.element then return end
+  
+  local is_player = event.element.name == "bpio_player_inventory"
+  local is_core = event.element.name == "bpio_blueprint_inventory" or
+                            event.element.name == "bpio_building_inventory" or
+                            event.element.name == "bpio_input_inventory" or
+                            event.element.name == "bpio_output_inventory"
+  if not (is_player or is_core) then return end
+  
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local player_inventory = player.get_main_inventory()
+  if not player_inventory then return end
+
+  if is_player then
+    ---@type dictionaryDict
+    local dict = storage.dictionary
+    local id_core = dict.player[event.player_index]
+    local core = dict.core[id_core]
+    if not (core and is_valid_core(core,"inventories")) then return end
+    local buildings_inventory = core.inventories.building
+    handle_click(event,player_inventory,buildings_inventory)
+  elseif is_core then
+    local core_inventory = event.element.inventory
+    if not core_inventory then return end
+    handle_click(event,core_inventory,player_inventory)
+  end
+end)
 
 --============================
 --===== Entity Lifecycle =====
@@ -960,16 +1034,22 @@ script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
 ---@param event EventData
 local function on_bpio_mined(event)
   local entity = event.entity
-  if not (entity and entity.valid) then return end
+  if not entity then return end
   local is_core = entity.name == "bpio-core"
   local is_aide = entity.name == "bpio-core-building" or entity.name == "bpio-core-input" or entity.name == "bpio-core-output"
   if not (is_core or is_aide) then return end
 
+  ---@type coreDict
   local core = storage.dictionary.core[entity.unit_number]
-  if not core then return end
+  if not (core and is_valid_core(core,"both")) then return end
 
-  if is_aide then event.buffer.insert({name = "bpio-site", count = 1}) end
+  if is_aide then
+    event.buffer.insert({name = "bpio-site", count = 1})
+  end
 
+  for _,inventory in pairs(core.inventories) do
+    event.buffer.transfer_from_inventory(inventory)
+  end
 
   gui_kick_everyone(core)
   if storage.dictionary.surface.lock then surface_recall(storage.dictionary.surface) end
@@ -982,10 +1062,10 @@ script.on_event(defines.events.on_robot_mined_entity, on_bpio_mined,bpio_filter)
 ---@param event EventData
 local function on_bpio_killed(event)
   local entity = event.entity
-  if not (entity and entity.valid and entity.unit_number) then return end
+  if not entity then return end
 
   local core = storage.dictionary.core[entity.unit_number]
-  if not core then return end
+  if not (core and is_valid_core(core,"both")) then return end
 
   gui_kick_everyone(core)
   if storage.dictionary.surface.lock then surface_shutdown(storage.dictionary.surface) end
@@ -1073,7 +1153,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 
   if start_boot then
     local bp_slot = core.inventories.blueprint[1]
-    if not (bp_slot and bp_slot.valid and bp_slot.valid_for_read and bp_slot.is_blueprint and bp_slot.is_blueprint_setup()) then
+    if not (bp_slot and bp_slot.valid_for_read and bp_slot.is_blueprint and bp_slot.is_blueprint_setup()) then
       force.print("Invalid blueprint slot")
       return
     end
@@ -1150,7 +1230,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     surface.building_force=force
     surface.core=core
     surface.size=target_size
-    surface.lua = game.create_surface("bpio-surface",{width=target_size.x,height=target_size.y})
+    surface.lua = game.create_surface("bpio-surface",{width=target_size.x+6,height=target_size.y+6})
     for property,value in pairs(core.properties) do
       surface.lua.set_property(property,value)
     end
@@ -1277,17 +1357,17 @@ local function on_tick(event)
         surface_recall(surface)
       else
         surface.ghosts = ghosts
-        queues.surface[clock+1] = "begin_entities"
+        queues.surface[clock+1] = "build_entities"
         surface.building_force.print("Placed ghosts")
       end
     end
-    if surface_now == "begin_entities"then
+    if surface_now == "build_entities"then
       ::retry::
       local at_least_one = false
       for ghostid,ghost in pairs(surface.ghosts) do
-        local _, revenant, proxy = ghost.revive()
+        local _, revenant, proxy = ghost.revive{raise_revive = true}
 
-        if revenant and revenant.valid then
+        if revenant then
           at_least_one = true
           if proxy then
             for _,plan in pairs(proxy.insert_plan) do
@@ -1318,7 +1398,7 @@ local function on_tick(event)
         surface.input_watcher = input_watcher[1].get_inventory(defines.inventory.chest)
         surface.output_watcher = output_watcher[1].get_inventory(defines.inventory.chest)
 
-        if surface.input_watcher and surface.input_watcher.valid and surface.output_watcher and surface.output_watcher.valid then
+        if surface.input_watcher and surface.output_watcher then
           for _,item_format in pairs(surface.core.input) do
             surface.input_watcher.insert(item_format)
           end

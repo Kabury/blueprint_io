@@ -1,7 +1,18 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.4
 Date: ????
+  Minor Features:
+    - Mining the compound entity works now, now the user isn't obligated to empty the compound to not delete items
+    - Shift and control clicking now supported by the UI
+    - Added ability to pippette the complex
+    - Added corpses that match the sites
+    - Entities on the simulated surface now trigger `script_raised_revive` so other mods can listen to them
   Changes:
+    - Fixed localization typo
+  Bugfixes:
+    - The GUI now scales correctly
+    - Removed an exploit that granted free items
+    - Removed a bug where opened state would linger after a core was destroyed, causing a crash.
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.3
 Date: 2026-08-16
