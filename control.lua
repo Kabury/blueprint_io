@@ -444,7 +444,9 @@ local function draw_gui(player, core)
     return
   end
 
+  local saved_tab
   if player.gui.screen["bpio_menu"] then
+    if core.state == "on" then saved_tab = player.gui.screen["bpio_menu"]["mflow"]["divisor"]["rframe"]["right_inset"]["bpio_tabbed_pane"].selected_tab_index end
     player.gui.screen["bpio_menu"].destroy()
   end
 
@@ -523,6 +525,7 @@ local function draw_gui(player, core)
     gui.frames = flib.add(gui.master.mflow, {
       type = "flow",
       direction = "horizontal",
+      name = "divisor",
       {
         type = "frame",
         name = "lframe",
@@ -592,7 +595,6 @@ local function draw_gui(player, core)
         }
       }
     })
-
 
     gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
     {
@@ -855,6 +857,7 @@ local function draw_gui(player, core)
       { type = "empty-widget", style = "entity_frame_filler" }
     }--[[@as flib.GuiElemDef]])
     gui.frames.bpio_tabbed_pane.add_tab(gui.frames.circuit_tab, gui.circuit_container.circuit_flow)
+    if saved_tab then gui.frames.bpio_tabbed_pane.selected_tab_index = saved_tab end
   end
 end
 
