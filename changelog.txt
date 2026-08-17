@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.4
-Date: ????
+Date: 2026-08-16
   Minor Features:
     - Mining the compound entity works now, now the user isn't obligated to empty the compound to not delete items
     - Shift and control clicking now supported by the UI
