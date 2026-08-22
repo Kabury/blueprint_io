@@ -2,6 +2,7 @@
 Version: 1.0.6
 Date: ????
   Changes:
+    - Whole architecture rewrite. Please report any new bugs please
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.5
 Date: 2026-08-17
