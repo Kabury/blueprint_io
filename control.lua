@@ -263,7 +263,7 @@ local function on_tick(event)
             core.aux.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],actual_amount)
           end
         end
-        core.aux.surface.pollute(core.position,core.pollution,core.entities.core)
+        core.aux.surface.pollute(core.aux.position,core.data.pollution,core.ent.core)
         core.state.check = 0
       end
       
