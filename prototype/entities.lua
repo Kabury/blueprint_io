@@ -174,3 +174,79 @@ blueprintable.output.flags = meld.append({"no-automated-item-removal"})
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.input)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),blueprintable.output)})
+
+local collider_scale = 0.85
+local collider_sizes = {0.8,1.8,2.8,3.8,4.8,5.8,6.8,7.8,8.8,9.8}
+
+data:extend({
+  {
+    type = "simple-entity",
+    name = "10-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[10]*2+0.4)/6,width=227,height=226,tint={r=229,g=45,b=45}},
+    selection_box={{-collider_sizes[10], -collider_sizes[10]}, {collider_sizes[10], collider_sizes[10]}},
+    collision_box={{-collider_sizes[10], -collider_sizes[10]}, {collider_sizes[10], collider_sizes[10]}},
+  },
+  {
+    type = "simple-entity",
+    name = "9-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[9]*2+0.4)/6,width=227,height=226,tint={r=229,g=137,b=45}},
+    selection_box={{-collider_sizes[9], -collider_sizes[9]}, {collider_sizes[9], collider_sizes[9]}},
+    collision_box={{-collider_sizes[9], -collider_sizes[9]}, {collider_sizes[9], collider_sizes[9]}},
+  },  
+  {
+    type = "simple-entity",
+    name = "8-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[8]*2+0.4)/6,width=227,height=226,tint={r=229,g=229,b=45}},
+    selection_box={{-collider_sizes[8], -collider_sizes[8]}, {collider_sizes[8], collider_sizes[8]}},
+    collision_box={{-collider_sizes[8], -collider_sizes[8]}, {collider_sizes[8], collider_sizes[8]}},
+  },  
+  {
+    type = "simple-entity",
+    name = "7-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[7]*2+0.4)/6,width=227,height=226,tint={r=137,g=229,b=45}},
+    selection_box={{-collider_sizes[7], -collider_sizes[7]}, {collider_sizes[7], collider_sizes[7]}},
+    collision_box={{-collider_sizes[7], -collider_sizes[7]}, {collider_sizes[7], collider_sizes[7]}},
+  },
+  {
+    type = "simple-entity",
+    name = "6-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[6]*2+0.4)/6,width=227,height=226,tint={r=45,g=229,b=137}},
+    selection_box={{-collider_sizes[6], -collider_sizes[6]}, {collider_sizes[6], collider_sizes[6]}},
+    collision_box={{-collider_sizes[6], -collider_sizes[6]}, {collider_sizes[6], collider_sizes[6]}},
+  },
+  {
+    type = "simple-entity",
+    name = "5-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[5]*2+0.4)/6,width=227,height=226,tint={r=45,g=229,b=229}},
+    selection_box={{-collider_sizes[5], -collider_sizes[5]}, {collider_sizes[5], collider_sizes[5]}},
+    collision_box={{-collider_sizes[5], -collider_sizes[5]}, {collider_sizes[5], collider_sizes[5]}},
+  },
+  {
+    type = "simple-entity",
+    name = "4-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[4]*2+0.4)/6,width=227,height=226,tint={r=45,g=45,b=229}},
+    selection_box={{-collider_sizes[4], -collider_sizes[4]}, {collider_sizes[4], collider_sizes[4]}},
+    collision_box={{-collider_sizes[4], -collider_sizes[4]}, {collider_sizes[4], collider_sizes[4]}},
+  },
+  {
+    type = "simple-entity",
+    name = "3-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[3]*2+0.4)/6,width=227,height=226,tint={r=137,g=45,b=229}},
+    selection_box={{-collider_sizes[3], -collider_sizes[3]}, {collider_sizes[3], collider_sizes[3]}},
+    collision_box={{-collider_sizes[3], -collider_sizes[3]}, {collider_sizes[3], collider_sizes[3]}},
+  },
+  {
+    type = "simple-entity",
+    name = "2-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[2]*2+0.4)/6,width=227,height=226,tint={r=229,g=45,b=229}},
+    selection_box={{-collider_sizes[2], -collider_sizes[2]}, {collider_sizes[2], collider_sizes[2]}},
+    collision_box={{-collider_sizes[2], -collider_sizes[2]}, {collider_sizes[2], collider_sizes[2]}},
+  },
+  {
+    type = "simple-entity",
+    name = "1-collider",
+    pictures = {filename="__blueprint_io_graphics__/entities/exotic-space-ind-matrix-low.png",variation_count = 1,scale=collider_scale*(collider_sizes[1]*2+0.4)/6,width=227,height=226,tint={r=0.6,g=0.6,b=0.6}},
+    selection_box={{-collider_sizes[1], -collider_sizes[1]}, {collider_sizes[1], collider_sizes[1]}},
+    collision_box={{-collider_sizes[1], -collider_sizes[1]}, {collider_sizes[1], collider_sizes[1]}},
+  },
+})

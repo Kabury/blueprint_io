@@ -121,3 +121,64 @@ function validate_blueprint(core)
 
   return true, target_size
 end
+
+
+
+---@param core coreDict
+---@param target_size {x: number, y: number}
+---@param direction "right-top"|"left-top"|"right-bottom"|"left-bottom"
+function bpio_corners(core, target_size, direction)
+  local bx = core.aux.position.x
+  local by = core.aux.position.y
+
+  local base = {}
+  base["right-top"]    = { bx + 7, by - 7 }
+  base["left-top"]     = { bx - 7, by - 7 }
+  base["right-bottom"] = { bx + 7, by + 7 }
+  base["left-bottom"]  = { bx - 7, by + 7 }
+
+  local tx = target_size.x
+  local ty = target_size.y
+  local offsets = {}
+  offsets["right-top"]    = { 0, -(ty+2), (tx+2), 0 }
+  offsets["left-top"]     = { -(tx+2), -(ty+2), 0, 0 }
+  offsets["right-bottom"] = { 0, 0, (tx+2), (ty+2) }
+  offsets["left-bottom"]  = { -(tx+2), 0, 0, (ty+2) }
+
+  local b = base[direction]
+  local o = offsets[direction]
+
+  local left_top     = { x=b[1] + o[1], y=b[2] + o[2] }
+  local right_bottom = { x=b[1] + o[3], y=b[2] + o[4] }
+
+  return { left_top=left_top, right_bottom=right_bottom }
+end
+
+
+
+---@param core coreDict
+---@param box BoundingBox
+function bpio_interference(core,box)
+
+  local obstructors = core.aux.surface.find_entities(box)
+  
+  if next(obstructors) then
+    core.aux.force.print("Something is blocking the blueprint from being simulated in the surface:")
+    core.aux.force.print(serpent.block({obstructors,#obstructors}))
+    return false
+  end
+
+
+  local bad_tiles = core.aux.surface.find_tiles_filtered{
+    area = box,
+    collision_mask = "ground_tile",
+    invert = true
+  }
+  if next(bad_tiles) then
+    core.aux.force.print("Something is blocking the blueprint from being simulated in the surface (Tiles):")
+    core.aux.force.print(serpent.block({bad_tiles, #bad_tiles}))
+    return false
+  end
+
+  return true
+end

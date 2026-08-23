@@ -32,6 +32,8 @@
 ---@field properties table<LuaSurfacePropertyPrototype,double>
 ---@field rendering LuaRenderObject
 ---@field render_name string
+---@field projector_direction "right-top"|"left-top"|"right-bottom"|"left-bottom"
+---@field projection_box BoundingBox
 ---@field position MapPosition
 ---@field force LuaForce
 ---@field section LuaLogisticSection

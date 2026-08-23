@@ -89,6 +89,7 @@ function on_bpio_created(event)
       rendering     = rendering.draw_animation{animation="bpio-item-extractor-off",target=core,surface=surface},
       render_name   = "bpio-item-extractor",
       position      = { x = position_x, y = position_y},
+      projector_direction = "right-top",
       force         = force,
       section       = section,
       statistics    = force.get_item_production_statistics(surface),

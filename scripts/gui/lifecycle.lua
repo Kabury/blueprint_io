@@ -86,7 +86,8 @@ function handle_buttons(event)
   local turn_off = event.element.name == "bpio-turn-off"
   local turn_on = event.element.name == "bpio-turn-on"
   local to_standby = event.element.name == "bpio-to-standby"
-  if not (start_boot or force_off or turn_off or turn_on or to_standby) then return end
+  local direction_change = event.element.name:match("^bpio%-direction%-(.+)$")
+  if not (start_boot or force_off or turn_off or turn_on or to_standby or direction_change) then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -132,6 +133,11 @@ function handle_buttons(event)
     core.state.checks = {}
     core.state.check = 0
 
+    redraw_everyone(core)
+  end
+
+  if direction_change then
+    core.aux.projector_direction = direction_change
     redraw_everyone(core)
   end
 end

@@ -197,6 +197,50 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
     },
     {
       type = "flow",
+      direction = "vertical",
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "sprite-button",
+          name = "bpio-direction-left-top",
+          sprite = "virtual-signal/up-left-arrow",
+          style = "train_schedule_action_button",
+          visible = core.state.status == "off",
+          toggled = core.aux.projector_direction == "left-top"
+        },
+        {
+          type = "sprite-button",
+          name = "bpio-direction-right-top",
+          sprite = "virtual-signal/up-right-arrow",
+          style = "train_schedule_action_button",
+          visible = core.state.status == "off",
+          toggled = core.aux.projector_direction == "right-top"
+        }
+      },
+      {
+        type = "flow",
+        direction = "horizontal",
+        {
+          type = "sprite-button",
+          name = "bpio-direction-left-bottom",
+          sprite = "virtual-signal/down-left-arrow",
+          style = "train_schedule_action_button",
+          visible = core.state.status == "off",
+          toggled = core.aux.projector_direction == "left-bottom"
+        },
+        {
+          type = "sprite-button",
+          name = "bpio-direction-right-bottom",
+          sprite = "virtual-signal/down-right-arrow",
+          style = "train_schedule_action_button",
+          visible = core.state.status == "off",
+          toggled = core.aux.projector_direction == "right-bottom"
+        }
+      }
+    },
+    {
+      type = "flow",
       name = "button_tray",
       direction = "horizontal",
       {

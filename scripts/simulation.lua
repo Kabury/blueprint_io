@@ -79,6 +79,10 @@ function bpio_boot(core,event)
   local is_valid_blueprint, target_size = validate_blueprint(core)
   if not (is_valid_blueprint and target_size and target_size.x and target_size.y) then return end
 
+  local new_corners = bpio_corners(core,target_size,core.aux.projector_direction)
+  local clear = bpio_interference(core,new_corners)
+  if not clear then return end
+
   local building_inventory = core.inv.building
   local building_wants = core.inv.blueprint[1].cost_to_build --[[@as ItemStackDefinition[] ]]
   local building_has = building_inventory.get_contents() --[[@as ItemStackDefinition[] ]]
@@ -109,8 +113,12 @@ function bpio_boot(core,event)
   if building_error then
     core.aux.force.print("There was an error while building the core. Unsure what happened. Proceeding normally...")
   else
-    core.aux.force.print("Used items needed to build")
-  end 
+    core.aux.force.print( "Used items needed to build")
+  end
+
+  core.aux.projection_box = new_corners
+  fill_area_with_colliders(core)
+  --rendering.draw_rectangle{color={r=0.5,g=0.5,b=0.5},left_top = new_corners.left_top,right_bottom = new_corners.right_bottom,surface=core.aux.surface,filled = true}
 
   core.aux.section.set_slot(1,{min=2,max=2,value=core.aux.section.get_slot(1).value})
   for _,property in pairs(prototypes.surface_property) do
@@ -123,7 +131,7 @@ function bpio_boot(core,event)
   core.state.progress = 0
 
   local name = "bpio-"..tostring(core.ids.core)
-  
+
   target_size.x = target_size.x + 8
   target_size.y = target_size.y + 8 
   core.sim.surface = game.create_surface(name,{width=target_size.x,height=target_size.y})
@@ -156,7 +164,9 @@ function bpio_off(core)
   core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=0,max=0})
   core.aux.section.set_slot(1,{min=1,max=1,value=core.aux.section.get_slot(1).value})
   core.aux.properties = {}
-
+  clear_area_from_colliders(core)
+  core.aux.projection_box = nil
+  
   core.state.status = "off"
   core.state.check = 0
   core.state.checks = {}
