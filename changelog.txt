@@ -1,7 +1,10 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.8
 Date: ????
-  Changes:
+  Major Features:
+    - Graphics update!
+  Bugfixes:
+    - Preventing accumulation of surface properties in the surface tab
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.7
 Date: 2026-08-22

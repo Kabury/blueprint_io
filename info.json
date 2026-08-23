@@ -2,7 +2,8 @@
   "factorio_version": "2.1",
   "dependencies": 
   [
-    "base >= 2.1", 
+    "base >= 2.1",
+    "blueprint_io_graphics",
     "klib",
     "flib",
     "+ kry-solid-fluids"

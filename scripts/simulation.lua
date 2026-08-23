@@ -155,14 +155,12 @@ end
 function bpio_off(core)
   core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=0,max=0})
   core.aux.section.set_slot(1,{min=1,max=1,value=core.aux.section.get_slot(1).value})
+  core.aux.properties = {}
 
   core.state.status = "off"
   core.state.check = 0
   core.state.checks = {}
   
-  for _,item_format in pairs(core.data.cost) do
-    core.inv.building.insert(item_format)
-  end
   core.data =
   {
     pollution   = 0,
@@ -175,53 +173,4 @@ function bpio_off(core)
   }
 
   redraw_everyone(core)  
-end
-
-
-
----@param event EventData.on_gui_click
-function handle_buttons(event)
-  local start_boot = event.element.name == "bpio-start-boot"
-  local turn_off = event.element.name == "bpio-turn-off"
-  local turn_on = event.element.name == "bpio-turn-on"
-  local to_standby = event.element.name == "bpio-to-standby"
-  if not (start_boot or turn_off or turn_on or to_standby) then return end
-
-  local player = game.get_player(event.player_index)
-  if not player then return end
-
-  local dicts = storage.dictionary
-  if not dicts then return end
-  local id_core = dicts.player[player.index]
-
-  ---@type coreDict
-  local core = dicts.core[id_core]
-  if not is_valid_core(core,"both") then
-    core.aux.force.print("Invalid core")
-    return
-  end
-
-  if start_boot then
-    bpio_boot(core,event)
-
-  elseif turn_off then
-    bpio_off(core)
-
-  elseif turn_on then
-    core.aux.section.set_slot(1,{min=4,max=4,value=core.aux.section.get_slot(1).value})
-    core.state.status = "on"
-    core.state.checks = {"?","?","?","?"}
-    
-    local time_slice = kl.get_or_set(storage.queue,event.tick+1)
-    time_slice[#time_slice+1] = core.ids.core
-
-    redraw_everyone(core)
-  elseif to_standby then
-    core.aux.section.set_slot(1,{min=3,max=3,value=core.aux.section.get_slot(1).value})
-    core.state.status = "standby"
-    core.state.checks = {}
-    core.state.check = 0
-
-    redraw_everyone(core)
-  end
 end

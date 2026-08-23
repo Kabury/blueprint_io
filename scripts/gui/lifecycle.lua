@@ -79,6 +79,106 @@ end
 
 
 
+---@param event EventData.on_gui_click
+function handle_buttons(event)
+  local start_boot = event.element.name == "bpio-start-boot"
+  local force_off = event.element.name == "bpio-force-off"
+  local turn_off = event.element.name == "bpio-turn-off"
+  local turn_on = event.element.name == "bpio-turn-on"
+  local to_standby = event.element.name == "bpio-to-standby"
+  if not (start_boot or force_off or turn_off or turn_on or to_standby) then return end
+
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local dicts = storage.dictionary
+  if not dicts then return end
+  local id_core = dicts.player[player.index]
+
+  ---@type coreDict
+  local core = dicts.core[id_core]
+  if not is_valid_core(core,"both") then
+    core.aux.force.print("Invalid core")
+    return
+  end
+
+  if start_boot then
+    bpio_boot(core,event)
+
+  elseif force_off then
+    surface_recall(core)
+    bpio_off(core)
+
+  elseif turn_off then
+    refund_cost(core)
+    bpio_off(core)
+
+  elseif turn_on then
+    core.aux.rendering.destroy()
+    core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-on",target=core.ent.core, surface=core.aux.surface}
+    core.aux.section.set_slot(1,{min=4,max=4,value=core.aux.section.get_slot(1).value})
+    core.state.status = "on"
+    core.state.checks = {"?","?","?","?"}
+    
+    local time_slice = kl.get_or_set(storage.queue,event.tick+1)
+    time_slice[#time_slice+1] = core.ids.core
+
+    redraw_everyone(core)
+  elseif to_standby then
+    core.aux.rendering.destroy()
+    core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-off",target=core.ent.core, surface=core.aux.surface}
+    core.aux.section.set_slot(1,{min=3,max=3,value=core.aux.section.get_slot(1).value})
+    core.state.status = "standby"
+    core.state.checks = {}
+    core.state.check = 0
+
+    redraw_everyone(core)
+  end
+end
+
+
+---@param event EventData.on_gui_selection_state_changed
+function bpio_sprites(event)
+  if event.element.name ~= "bpio_sprite" then return end
+
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local dicts = storage.dictionary --[[@as dictionaryDict]]
+  if not dicts then return end
+
+  local id_core = dicts.player[player.index]
+
+  local core = dicts.core[id_core]
+  if not is_valid_core(core,"both") then
+    core_die(core)
+    return
+  end
+  
+  local sprite_id = event.element.selected_index
+  local sprite_name
+  if sprite_id == 1 then
+    sprite_name = "bpio-item-extractor"
+  elseif sprite_id == 2 then
+    sprite_name = "bpio-quantum-stabilizer"
+  elseif sprite_id == 3 then
+    sprite_name = "bpio-ai-trainer"
+  end
+  local core_anim_status = core.state.status
+  if core_anim_status == "standby" or core_anim_status == "booting" then
+    core_anim_status = "off"
+  end
+  core_anim_status = "-"..core_anim_status
+  
+  core.aux.render_name = sprite_name
+  core.aux.rendering.destroy()
+  core.aux.rendering = rendering.draw_animation{animation=sprite_name..core_anim_status,target=core.ent.core, surface=core.aux.surface}
+  
+
+end
+
+
+
 ---@param event EventData.on_gui_elem_changed
 function bpio_signals(event)
   local ename = event.element.name

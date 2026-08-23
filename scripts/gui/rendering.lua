@@ -10,8 +10,8 @@ function booting_screen(gui,player,core)
   local resolution = {width=raw.width/adj, height=raw.height/adj}
   local target_zoom
   if core.sim.size and core.sim.size.x and core.sim.size.y then 
-    local zoom_x = (resolution.width - 350) / (core.sim.size.x * TILE_RESOLUTION)
-    local zoom_y = (resolution.height - 350) / (core.sim.size.y * TILE_RESOLUTION)
+    local zoom_x = (resolution.width - 450) / (core.sim.size.x * TILE_RESOLUTION)
+    local zoom_y = (resolution.height - 450) / (core.sim.size.y * TILE_RESOLUTION)
     target_zoom = math.min(zoom_x, zoom_y)
   else
     target_zoom = 1
@@ -33,12 +33,23 @@ function booting_screen(gui,player,core)
         type = "label",
         caption = {"gui-element.bpio-status-booting-label"},
         style = "frame_title"
-      },
+      }
     },
     {
+      type = "flow",
+      direction = "horizontal",
+      style_mods = { bottom_padding = 8 }, --[[@diagnostic disable-line: missing-fields]]
+      {
+        type = "sprite-button",
+        name = "bpio-force-off",
+        sprite = "utility/stop",
+        style = "train_schedule_action_button"
+      },
+      {
         type = "progressbar",
         name = "progress_bar",
-        style_mods = { natural_width = math.floor((resolution.width - 300) ), bar_width = 12 } --[[@diagnostic disable-line: missing-fields]]
+        style_mods = { natural_width = math.floor((resolution.width - 400) - 32), bar_width = 12, top_margin = 7 } --[[@diagnostic disable-line: missing-fields]]
+      }
     },
     {
       type = "frame",
@@ -48,7 +59,7 @@ function booting_screen(gui,player,core)
         position = {0, 0},
         surface_index = core.sim.surface.index,
         zoom = target_zoom,
-        style_mods = { natural_width = resolution.width - 300, natural_height = resolution.height - 300 }
+        style_mods = { natural_width = resolution.width - 400, natural_height = resolution.height - 400 }
       }
     }
   })
@@ -170,15 +181,19 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
         name = "preview",
         position = core.aux.position,
         surface_index = core.aux.surface_index,
-        zoom = 0.7,
-        style_mods = { natural_width = 400, natural_height = 250 }
+        zoom = 0.9,
+        style_mods = { natural_width = 400, natural_height = 400 }
       }
     },
     {
-      type = "flow",
-      direction = "horizontal",
-      name = "checks_tray",
-      visible = core.state.status == "on",
+      type = "drop-down",
+      name = "bpio_sprite",
+      items =
+      {
+        {"gui-element.bpio-sprite-one-label"},
+        {"gui-element.bpio-sprite-two-label"},
+        {"gui-element.bpio-sprite-three-label"}
+      }
     },
     {
       type = "flow",
@@ -210,6 +225,12 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
         name = "bpio-to-standby",
         sprite = "utility/pause",
         style = "train_schedule_action_button",
+        visible = core.state.status == "on",
+      },
+      {
+        type = "flow",
+        direction = "horizontal",
+        name = "checks_tray",
         visible = core.state.status == "on",
       }
     }
@@ -435,6 +456,15 @@ function draw_gui(player, core)
     if core.state.status == "on" then saved_tab = player.gui.screen["bpio_menu"]["mflow"]["divisor"]["rframe"]["right_inset"]["bpio_tabbed_pane"].selected_tab_index end
     player.gui.screen["bpio_menu"].destroy()
   end
+  local sprite_name = core.aux.render_name
+  local saved_sprite
+  if sprite_name == "bpio-item-extractor" then
+    saved_sprite = 1
+  elseif sprite_name == "bpio-quantum-stabilizer" then
+    saved_sprite = 2
+  elseif sprite_name == "bpio-ai-trainer" then
+    saved_sprite = 3
+  end 
 
   local gui = {}
   gui.master = flib.add(player.gui.screen, {
@@ -465,6 +495,7 @@ function draw_gui(player, core)
       create_data_tab(gui,core)
     end
     create_circuit_tab(gui,core)
+    if saved_sprite then gui.control_container.bpio_sprite.selected_index = saved_sprite end
     if saved_tab then gui.frames.bpio_tabbed_pane.selected_tab_index = saved_tab end
   end
 end

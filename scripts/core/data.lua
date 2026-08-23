@@ -69,11 +69,18 @@ end
 
 
 ---@param core coreDict
-function surface_recall(core)
+function refund_cost(core)
   for _,item_format in pairs(core.data.cost) do
     core.inv.building.insert(item_format)
   end
   core.aux.force.print("Refunded buildings")
+end
+
+
+
+---@param core coreDict
+function surface_recall(core)
+  refund_cost(core)
   surface_shutdown(core)
 end
 

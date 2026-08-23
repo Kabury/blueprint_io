@@ -30,6 +30,8 @@
 ---@field surface LuaSurface
 ---@field surface_index uint32
 ---@field properties table<LuaSurfacePropertyPrototype,double>
+---@field rendering LuaRenderObject
+---@field render_name string
 ---@field position MapPosition
 ---@field force LuaForce
 ---@field section LuaLogisticSection

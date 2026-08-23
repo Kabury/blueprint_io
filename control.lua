@@ -70,6 +70,8 @@ script.on_event(defines.events.on_player_controller_changed, bpio_controller)
 
 script.on_event(defines.events.on_gui_click, handle_buttons)
 
+script.on_event(defines.events.on_gui_selection_state_changed, bpio_sprites)
+
 script.on_event(defines.events.on_gui_inventory_action, inventory_interaction)
 
 script.on_event(defines.events.on_gui_elem_changed, bpio_signals)
@@ -163,7 +165,8 @@ local function on_tick(event)
             core.state.sim_lock = "busy"
             local time_slice = kl.get_or_set(storage.queue,clock+1)
             time_slice[#time_slice+1] = id_core
-            core.aux.force.print("Spawned items.\n Began logging...")
+            core.aux.force.print("Spawned items.")
+            core.aux.force.print("Began logging...")
           end
         else
           core.aux.force.print("Couldn't find the input/output boxes for some reason. Recalling")
@@ -219,6 +222,8 @@ local function on_tick(event)
         core.data.history[#core.data.history] = add_item_lists(core.data.history[#core.data.history],stolen_goods)
         core.data.input = as_item_quality_count(core.data.history[#core.data.history])
         core.data.pollution = sim.surface.get_total_pollution()
+        core.state.sim_lock = nil
+        core.state.check = 0
         core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=core.data.pollution*10,max=core.data.pollution*10})
         surface_shutdown(core)
         redraw_everyone(core)
@@ -241,7 +246,7 @@ local function on_tick(event)
           core.state.checks[core.state.check] = "y" 
         else
           core.state.checks[core.state.check] = "n"
-          core.ent.core.damage(30,"neutral",nil,nil,core.ent.core)
+          core.ent.core.damage(10,"neutral",nil,nil,core.ent.core)
           if not is_valid_core(core,"both") then 
             gui_kick_everyone(core)
             core_die(core)

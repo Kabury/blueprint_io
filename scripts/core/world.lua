@@ -24,13 +24,13 @@ function on_bpio_created(event)
   building = surface.create_entity
   {
     name="bpio-core-building",
-    position={x=position_x,y=position_y-5},
+    position={x=position_x,y=position_y-6},
     force=force
   }
   input = surface.create_entity
   {
     name="bpio-core-input",
-    position={x=position_x-5,y=position_y},
+    position={x=position_x-6,y=position_y},
     force=force
   }
   output = surface.create_entity
@@ -86,7 +86,9 @@ function on_bpio_created(event)
       surface       = surface,
       surface_index = surface.index,
       properties    = {},
-      position      = { x = position_x, y = position_y - 2},
+      rendering     = rendering.draw_animation{animation="bpio-item-extractor-off",target=core,surface=surface},
+      render_name   = "bpio-item-extractor",
+      position      = { x = position_x, y = position_y},
       force         = force,
       section       = section,
       statistics    = force.get_item_production_statistics(surface),
