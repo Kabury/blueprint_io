@@ -196,6 +196,11 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
       }
     },
     {
+      type = "label",
+      caption = {"gui-element.bpio-collider-orientation"},
+      visible = core.state.status == "off"
+    },
+    {
       type = "flow",
       direction = "vertical",
       {
@@ -238,6 +243,60 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
           toggled = core.aux.projector_direction == "right-bottom"
         }
       }
+    },
+    {
+      type="flow",
+      direction="vertical",
+      {
+        type = "label",
+        caption = {"gui-element.bpio-check-amount"},
+        visible = core.state.status == "off"
+      },
+      {
+        type="flow",
+        direction="horizontal",
+        {
+          type = "slider",
+          name = "bpio-check-amount-slider",
+          minimum_value = 1,
+          maximum_value = 10,
+          elem_mods = { slider_value = core.state.check_info.amount },
+          visible = core.state.status == "off",
+          style_mods = { natural_width = 340}
+        },
+        {
+          type = "textfield",
+          name = "bpio-check-amount-box",
+          text = tostring(math.floor(core.state.check_info.amount)),
+          visible = core.state.status == "off",
+          style_mods = { maximal_width = 60}
+        }
+      },
+      {
+        type = "label",
+        caption = {"gui-element.bpio-check-time"},
+        visible = core.state.status == "off"
+      },
+      {
+        type="flow",
+        direction="horizontal",
+        {
+          type = "slider",
+          name = "bpio-check-time-slider",
+          minimum_value = 10,
+          maximum_value = 150,
+          elem_mods = { slider_value = core.state.check_info.time },
+          visible = core.state.status == "off",
+          style_mods = { natural_width = 340}
+        },
+        {
+          type = "textfield",
+          name = "bpio-check-time-box",
+          text = tostring(math.floor(core.state.check_info.time)),
+          visible = core.state.status == "off",
+          style_mods = { maximal_width = 60}
+        }
+      },
     },
     {
       type = "flow",
@@ -351,8 +410,8 @@ function create_inventories_tab(gui,core)
     {
       type = "inventory",
       name = "bpio_building_inventory",
-      slots_per_row = 6,
-      style_mods = { maximal_width = 40*6 }, --[[@diagnostic disable-line: missing-fields]]
+      slots_per_row = 7,
+      style_mods = { maximal_width = 40*7 }, --[[@diagnostic disable-line: missing-fields]]
       elem_mods = { inventory = core.inv.building } --[[@diagnostic disable-line: missing-fields]]
     },
     {
@@ -362,8 +421,8 @@ function create_inventories_tab(gui,core)
     {
       type = "inventory",
       name = "bpio_input_inventory",
-      slots_per_row = 6,
-      style_mods = { maximal_width = 40*6 }, --[[@diagnostic disable-line: missing-fields]]
+      slots_per_row = 7,
+      style_mods = { maximal_width = 40*7 }, --[[@diagnostic disable-line: missing-fields]]
       elem_mods = { inventory = core.inv.input } --[[@diagnostic disable-line: missing-fields]]
     },
     {
@@ -373,8 +432,8 @@ function create_inventories_tab(gui,core)
     {
       type = "inventory",
       name = "bpio_output_inventory",
-      slots_per_row = 6,
-      style_mods = { maximal_width = 40*6 }, --[[@diagnostic disable-line: missing-fields]]
+      slots_per_row = 7,
+      style_mods = { maximal_width = 40*7 }, --[[@diagnostic disable-line: missing-fields]]
       elem_mods = { inventory = core.inv.output } --[[@diagnostic disable-line: missing-fields]]
     },
     { type = "empty-widget", style = "entity_frame_filler" }
@@ -420,14 +479,17 @@ function create_data_tab(gui,core)
   gui.frames.bpio_tabbed_pane.add_tab(gui.frames.data_tab, gui.data_container.data_flow)
 
   local i = 1
-  local times = {{0.5, "m"}, {1, "m"}, {1.5, "m"}, {2, "m"}}
+  local times = {}
+  for j = 1,core.state.check_info.amount do
+    times[#times+1] = {j*core.state.check_info.time/60,"m"}
+  end
   for _, item_list in pairs(core.data.history) do
     if times[i] then
       draw_item_list(gui.data_container.inputs_flow, item_list, times[i][1], times[i][2])
     end
     i = i + 1
   end
-  draw_item_list(gui.data_container.outputs_flow, core.data.output_list, 2, "m")
+  draw_item_list(gui.data_container.outputs_flow, core.data.output_list, core.state.check_info.amount*core.state.check_info.time/60, "m")
 end
 
 

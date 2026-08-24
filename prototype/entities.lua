@@ -49,7 +49,7 @@ local bpio_core =
   placeable_by = {count=1, item="bpio-site"},
   icons={{icon="__blueprint_io__/thumbnail.png",icon_size = 64,scale=0.4}},
   flags=meld.append({"not-rotatable","not-blueprintable"}),
-  corpse = "buffer-chest-remnants", 
+  corpse = "cargo-landing-pad-remnants", 
   circuit_wire_connection_points=
   {
     {
@@ -80,8 +80,8 @@ local special_box =
 {
   name="_",
   inventory_type="with_custom_stack_size",
-  inventory_size=5,
-  inventory_properties={stack_size_multiplier = 100, with_bar = true},
+  inventory_size=7,
+  inventory_properties={stack_size_multiplier = 1000},
   minable = { mining_time = 3 },
   circuit_connector = {circuit_connector},
   icons={{icon="__core__/graphics/empty.png",icon_size=1}},
@@ -96,7 +96,7 @@ local special_box =
 
 local core = {}
 core.building = table.deepcopy(special_box)
-core.building.inventory_size=47
+core.building.inventory_size=49
 core.input = table.deepcopy(special_box)
 core.output = table.deepcopy(special_box)
 
@@ -105,8 +105,7 @@ meld.meld(core.building,
   name="bpio-core-building",
   selection_box={{-5, -0.5}, {5, 0.5}},
   collision_box={{-4.8, -0.3}, {4.8, 0.3}},
-  circuit_connector = {building_connector},
-  corpse = "storage-chest-remnants"
+  circuit_connector = {building_connector}
 })
 core.building.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 core.building.corpse=meld.delete()
@@ -116,8 +115,7 @@ meld.meld(core.input,
 {
   name="bpio-core-input",
   selection_box={{-0.5, -6}, {0.5, 6}},
-  collision_box={{-0.3, -5.8}, {0.3, 5.8}},
-  corpse = "requester-chest-remnants"
+  collision_box={{-0.3, -5.8}, {0.3, 5.8}}
 })
 core.input.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 core.input.corpse=meld.delete()
@@ -127,8 +125,7 @@ meld.meld(core.output,
 {
   name="bpio-core-output",
   selection_box={{-0.5, -6}, {0.5, 6}},
-  collision_box={{-0.3, -5.8}, {0.3, 5.8}},
-  corpse = "passive-provider-chest-remnants"
+  collision_box={{-0.3, -5.8}, {0.3, 5.8}}
 })
 core.output.flags = meld.append({"no-automated-item-insertion","not-blueprintable"})
 core.output.corpse=meld.delete()

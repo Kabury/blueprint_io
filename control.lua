@@ -71,6 +71,8 @@ script.on_event(defines.events.on_player_controller_changed, bpio_controller)
 
 script.on_event(defines.events.on_gui_click, handle_buttons)
 
+script.on_event(defines.events.on_gui_value_changed, handle_sliders)
+
 script.on_event(defines.events.on_gui_selection_state_changed, bpio_sprites)
 
 script.on_event(defines.events.on_gui_inventory_action, inventory_interaction)
@@ -176,7 +178,7 @@ local function on_tick(event)
       end
       if todo == "busy" then
         core.state.progress = core.state.progress + 1
-        if core.state.progress % ((30*60) / BAR_FREQUENCY) == 0 then
+        if core.state.progress % ((core.state.check_info.time*60) / BAR_FREQUENCY) == 0 then
           core.state.check = core.state.check + 1
           if sim.input_watcher and sim.input_watcher.valid then
             local current_input = sim.input_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
@@ -191,10 +193,10 @@ local function on_tick(event)
         end
         for _,progress_bar in pairs(core.aux.progress_bars) do
           if progress_bar.valid then 
-            progress_bar.value = core.state.progress * BAR_FREQUENCY/(2*60*60) 
+            progress_bar.value = core.state.progress * BAR_FREQUENCY/(core.state.check_info.time*core.state.check_info.amount*60) 
           end
         end
-        if core.state.check == ((2*60)/30) then
+        if core.state.check == core.state.check_info.amount then
           if sim.output_watcher and sim.output_watcher.valid then
             local output = sim.output_watcher.get_contents() --[[@as ItemStackDefinition[] ]]
             end_plan(sim.plan_memory)
@@ -237,7 +239,12 @@ local function on_tick(event)
         goto next_core 
       end
 
-      if core.state.check == 0 then core.state.checks={"?","?","?","?"} end
+      if core.state.check == 0 then 
+        core.state.checks={}
+        for i = 1, core.state.check_info.amount do
+          core.state.checks[#core.state.checks + 1] = "?"
+        end
+      end
       core.state.check = core.state.check+1
 
       local current_items = as_item_list(core.inv.input.get_contents()  --[[@as ItemStackDefinition[] ]])
@@ -258,12 +265,16 @@ local function on_tick(event)
         core.aux.force.print("Core "..core.ids.core.." could not find it's history entry. It might have corrupted.")
       end
       
-      if core.state.check == 4 then
+      if core.state.check == core.state.check_info.amount then
         for _,item_format in pairs(core.data.input) do
           local actual_amount = core.inv.input.remove(item_format)
           core.aux.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],-actual_amount)
         end
-        if (core.state.checks[1]=="y" and core.state.checks[2]=="y" and core.state.checks[3]=="y" and core.state.checks[4]=="y") then
+        local every_check = true
+        for _,check in pairs(core.state.checks) do
+          every_check = every_check and check == "y"
+        end
+        if every_check then
           for _,item_format in pairs(core.data.output) do
             local actual_amount = core.inv.output.insert(item_format)
             core.aux.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],actual_amount)

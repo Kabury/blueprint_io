@@ -143,6 +143,41 @@ function handle_buttons(event)
 end
 
 
+
+---@param event EventData.on_gui_value_changed
+function handle_sliders(event)
+  local time = event.element.name == "bpio-check-time-slider"
+  local amount = event.element.name =="bpio-check-amount-slider"
+  if not (time or amount) then return end
+
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local dicts = storage.dictionary
+  if not dicts then return end
+  local id_core = dicts.player[player.index]
+
+  ---@type coreDict
+  local core = dicts.core[id_core]
+  if not is_valid_core(core,"both") then
+    core.aux.force.print("Invalid core")
+    return
+  end
+
+  local side_box
+  if time then 
+    side_box = event.element.parent["bpio-check-time-box"]
+    core.state.check_info.time = event.element.slider_value
+  end
+  if amount then 
+    side_box = event.element.parent["bpio-check-amount-box"]
+    core.state.check_info.amount = event.element.slider_value 
+  end
+  side_box.text = tostring(event.element.slider_value)
+end
+
+
+
 ---@param event EventData.on_gui_selection_state_changed
 function bpio_sprites(event)
   if event.element.name ~= "bpio_sprite" then return end

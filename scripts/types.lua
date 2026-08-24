@@ -44,6 +44,7 @@
 ---@field status "off"|"booting"|"standby"|"on"
 ---@field check number Check number
 ---@field checks checkStatus[] Status of each check
+---@field check_info table 
 ---@field lock boolean Lock destroy/die
 ---@field sim_lock? "idle"|"build_ghosts"|"build_entities"|"retry_entities"|"initialize_inventories"|"initialize_logs"|"busy"|"epilog" What stage the surface is on
 ---@field progress double How much has the surface ran

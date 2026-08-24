@@ -97,11 +97,12 @@ function on_bpio_created(event)
     },
     state =
     {
-      status   = "off",
-      check    = 0,
-      checks   = {}, 
-      lock     = false,
-      progress = 0
+      status     = "off",
+      check      = 0,
+      checks     = {},
+      check_info = { amount=4, time=30 },
+      lock       = false,
+      progress   = 0
     },
     sim = {},
     data = {}
