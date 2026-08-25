@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.11
-Date: ????
+Date: 2026-08-25
   Major Features:
     - You can now configure the item and pollution; or damage punishments with a runtime setting
     - Added ability to turn off/on blueprints based on circuit conditions.
