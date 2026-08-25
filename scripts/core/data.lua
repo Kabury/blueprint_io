@@ -25,6 +25,9 @@ end
 function core_die(core)
   if not core.state.lock then
     core.state.lock = true
+    if core.state.status ~= "off" then
+      clear_area_from_colliders(core)
+    end
     core.inv.blueprint.destroy()
     if core.ent.output.valid   then core.ent.output.die()   else core.ent.output.destroy()   end
     if core.ent.input.valid    then core.ent.input.die()    else core.ent.input.destroy()    end
@@ -43,6 +46,9 @@ end
 function core_destroy(core)
   if not core.state.lock then
     core.state.lock = true
+    if core.state.status ~= "off" then
+      clear_area_from_colliders(core)
+    end
     core.inv.blueprint.destroy()
     core.ent.output.destroy()
     core.ent.input.destroy()
@@ -162,9 +168,17 @@ function bpio_interference(core,box)
 
   local obstructors = core.aux.surface.find_entities(box)
   
-  if next(obstructors) then
-    core.aux.force.print("Something is blocking the blueprint from being simulated in the surface:")
-    core.aux.force.print(serpent.block({obstructors,#obstructors}))
+  local true_obstructors = {}
+  
+  for _,entity in pairs(obstructors) do
+    if entity.type ~= "resource" then -- escape resources because they'd be annoying for players. Fishes are in water so they'd tile collide anyways
+      true_obstructors[#true_obstructors + 1] = entity
+    end 
+  end
+
+  if next(true_obstructors) then
+    core.aux.force.print(serpent.block(true_obstructors))
+    core.aux.force.print(tostring(#true_obstructors).." entities are blocking the blueprint.")
     return false
   end
 
@@ -175,8 +189,7 @@ function bpio_interference(core,box)
     invert = true
   }
   if next(bad_tiles) then
-    core.aux.force.print("Something is blocking the blueprint from being simulated in the surface (Tiles):")
-    core.aux.force.print(serpent.block({bad_tiles, #bad_tiles}))
+    core.aux.force.print(tostring(#bad_tiles).." tiles are blocking the blueprint.")
     return false
   end
 

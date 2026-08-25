@@ -79,8 +79,8 @@ function bpio_boot(core,event)
   local is_valid_blueprint, target_size = validate_blueprint(core)
   if not (is_valid_blueprint and target_size and target_size.x and target_size.y) then return end
 
-  local new_corners = bpio_corners(core,target_size,core.aux.projector_direction)
-  local clear = bpio_interference(core,new_corners)
+  local collider_corners = bpio_corners(core,target_size,core.aux.projector_direction)
+  local clear = bpio_interference(core,collider_corners)
   if not clear then return end
 
   local building_inventory = core.inv.building
@@ -116,7 +116,7 @@ function bpio_boot(core,event)
     core.aux.force.print( "Used items needed to build")
   end
 
-  core.aux.projection_box = new_corners
+  core.aux.projection_box = collider_corners
   fill_area_with_colliders(core)
   --rendering.draw_rectangle{color={r=0.5,g=0.5,b=0.5},left_top = new_corners.left_top,right_bottom = new_corners.right_bottom,surface=core.aux.surface,filled = true}
 
@@ -154,14 +154,38 @@ function bpio_boot(core,event)
   core.aux.force.print("Created surface and force")
   local time_slice = kl.get_or_set(storage.queue,event.tick+1)
   time_slice[#time_slice+1]=core.ids.core
-  redraw_everyone(core)
+end
+
+
+
+---@param core coreDict
+function bpio_on(core,event)
+  core.aux.rendering.destroy()
+  core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-on",target=core.ent.core, surface=core.aux.surface}
+  core.aux.section.set_slot(1,{min=4,max=4,value=core.aux.section.get_slot(1).value})
+  core.state.status = "on"
+  
+  local time_slice = kl.get_or_set(storage.queue,event.tick+1)
+  time_slice[#time_slice+1] = core.ids.core
+end
+
+
+
+---@param core coreDict
+function bpio_standby(core)
+    core.aux.rendering.destroy()
+    core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-off",target=core.ent.core, surface=core.aux.surface}
+    core.aux.section.set_slot(1,{min=3,max=3,value=core.aux.section.get_slot(1).value})
+    core.state.status = "standby"
+    core.state.checks = {}
+    core.state.check = 0
 end
 
 
 
 ---@param core coreDict
 function bpio_off(core)
-  core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=0,max=0})
+  core.aux.section.set_slot(2,{min=0,max=0,value=core.aux.section.get_slot(2).value})
   core.aux.section.set_slot(1,{min=1,max=1,value=core.aux.section.get_slot(1).value})
   core.aux.properties = {}
   clear_area_from_colliders(core)
@@ -180,7 +204,5 @@ function bpio_off(core)
     input_list  = {},
     output_list = {},
     history     = {}
-  }
-
-  redraw_everyone(core)  
+  } 
 end

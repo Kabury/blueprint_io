@@ -87,7 +87,8 @@ function handle_buttons(event)
   local turn_on = event.element.name == "bpio-turn-on"
   local to_standby = event.element.name == "bpio-to-standby"
   local direction_change = event.element.name:match("^bpio%-direction%-(.+)$")
-  if not (start_boot or force_off or turn_off or turn_on or to_standby or direction_change) then return end
+  local glance = event.element.name == "bpio-blueprint-glance"
+  if not (start_boot or force_off or turn_off or turn_on or to_standby or direction_change or glance) then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -107,7 +108,7 @@ function handle_buttons(event)
     bpio_boot(core,event)
 
   elseif force_off then
-    surface_recall(core)
+    surface_recall(core) -- this will call refund_cost inside too
     bpio_off(core)
 
   elseif turn_off then
@@ -115,30 +116,21 @@ function handle_buttons(event)
     bpio_off(core)
 
   elseif turn_on then
-    core.aux.rendering.destroy()
-    core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-on",target=core.ent.core, surface=core.aux.surface}
-    core.aux.section.set_slot(1,{min=4,max=4,value=core.aux.section.get_slot(1).value})
-    core.state.status = "on"
-    core.state.checks = {"?","?","?","?"}
-    
-    local time_slice = kl.get_or_set(storage.queue,event.tick+1)
-    time_slice[#time_slice+1] = core.ids.core
+    bpio_on(core,event)
 
-    redraw_everyone(core)
   elseif to_standby then
-    core.aux.rendering.destroy()
-    core.aux.rendering = rendering.draw_animation{animation=core.aux.render_name.."-off",target=core.ent.core, surface=core.aux.surface}
-    core.aux.section.set_slot(1,{min=3,max=3,value=core.aux.section.get_slot(1).value})
-    core.state.status = "standby"
-    core.state.checks = {}
-    core.state.check = 0
+    bpio_standby(core)
 
-    redraw_everyone(core)
+  elseif direction_change then
+    core.aux.projector_direction = direction_change --[[@as corners]]
   end
 
-  if direction_change then
-    core.aux.projector_direction = direction_change
-    redraw_everyone(core)
+  redraw_everyone(core)
+
+  if glance then
+    if core.inv.blueprint[1].valid_for_read and core.inv.blueprint[1].is_blueprint then
+      player.opened = core.inv.blueprint[1]
+    end
   end
 end
 
@@ -168,12 +160,51 @@ function handle_sliders(event)
   if time then 
     side_box = event.element.parent["bpio-check-time-box"]
     core.state.check_info.time = event.element.slider_value
-  end
-  if amount then 
+  elseif amount then 
     side_box = event.element.parent["bpio-check-amount-box"]
     core.state.check_info.amount = event.element.slider_value 
   end
   side_box.text = tostring(event.element.slider_value)
+end
+
+
+
+---@param event EventData.on_gui_text_changed
+function handle_textboxes(event)
+  local amount = event.element.name == "bpio-check-amount-box"
+  local time = event.element.name == "bpio-check-time-box"
+  if (not (amount or time)) or event.element.text =="" then return end
+
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local dicts = storage.dictionary
+  if not dicts then return end
+  local id_core = dicts.player[player.index]
+
+  ---@type coreDict
+  local core = dicts.core[id_core]
+  if not is_valid_core(core,"both") then
+    core.aux.force.print("Invalid core")
+    return
+  end
+  
+  
+  local side_slide
+  local raw_number = tonumber(event.element.text)
+  local refined_number
+  if time then 
+    side_slide = event.element.parent["bpio-check-time-slider"]
+    refined_number = math.min(math.max(raw_number, 10), 300)
+    core.state.check_info.time = refined_number
+  elseif amount then 
+    side_slide = event.element.parent["bpio-check-amount-slider"]
+    refined_number = math.min(math.max(raw_number, 1), 10)
+    core.state.check_info.amount = refined_number
+  end
+  event.element.text = tostring(refined_number)
+  side_slide.slider_value = refined_number
+
 end
 
 
@@ -219,14 +250,15 @@ function bpio_sprites(event)
 end
 
 
-
 ---@param event EventData.on_gui_elem_changed
 function bpio_signals(event)
   local ename = event.element.name
   local state = ename == "bpio-state-signal"  
   local pollution = ename == "bpio-pollution-signal"  
+  local on = ename == "bpio-on-signal"
+  local off = ename == "bpio-off-signal"
 
-  if not (state or pollution) then return end
+  if not (state or pollution or on or off) then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -247,6 +279,10 @@ function bpio_signals(event)
     where = 1
   elseif pollution then
     where = 2
+  elseif on then
+    where = 3
+  elseif off then
+    where = 4
   else
     return 
   end
@@ -257,4 +293,8 @@ function bpio_signals(event)
   if qsignal.quality == nil then qsignal.quality="normal" end 
 
   core.aux.section.set_slot(where,{min=stale,max=stale,value=qsignal --[[@as SignalFilter]]})
+
+  if (on and core.state.status ~= "on") or (off and core.state.status == "on") then
+    core.ent.trigger.get_or_create_control_behavior().circuit_condition = {first_signal = qsignal, comparator = "!=", constant=0}
+  end
 end

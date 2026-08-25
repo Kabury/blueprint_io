@@ -186,13 +186,24 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
       }
     },
     {
-      type = "drop-down",
-      name = "bpio_sprite",
-      items =
+      type="flow",
+      direction="horizontal",
       {
-        {"gui-element.bpio-sprite-one-label"},
-        {"gui-element.bpio-sprite-two-label"},
-        {"gui-element.bpio-sprite-three-label"}
+        type = "sprite-button",
+        name = "bpio-blueprint-glance",
+        sprite = "utility/side_menu_blueprint_library_icon",
+        style = "train_schedule_action_button",
+        style_mods = {padding = -8}
+      },
+      {
+        type = "drop-down",
+        name = "bpio_sprite",
+        items =
+        {
+          {"gui-element.bpio-sprite-one-label"},
+          {"gui-element.bpio-sprite-two-label"},
+          {"gui-element.bpio-sprite-three-label"}
+        }
       }
     },
     {
@@ -267,6 +278,7 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
         {
           type = "textfield",
           name = "bpio-check-amount-box",
+          elem_mods = { numeric = true, allow_decimal = false, allow_negative = false},
           text = tostring(math.floor(core.state.check_info.amount)),
           visible = core.state.status == "off",
           style_mods = { maximal_width = 60}
@@ -284,7 +296,7 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
           type = "slider",
           name = "bpio-check-time-slider",
           minimum_value = 10,
-          maximum_value = 150,
+          maximum_value = 300,
           elem_mods = { slider_value = core.state.check_info.time },
           visible = core.state.status == "off",
           style_mods = { natural_width = 340}
@@ -292,6 +304,7 @@ gui.control_container = flib.add(gui.frames.bpio_tabbed_pane,
         {
           type = "textfield",
           name = "bpio-check-time-box",
+          elem_mods = { numeric = true, allow_decimal = false, allow_negative = false},
           text = tostring(math.floor(core.state.check_info.time)),
           visible = core.state.status == "off",
           style_mods = { maximal_width = 60}
@@ -499,9 +512,13 @@ function create_circuit_tab(gui,core)
   local qsignals = {}
   qsignals.state = core.aux.section.get_slot(1).value
   qsignals.pollution = core.aux.section.get_slot(2).value
-  if not (qsignals.state and qsignals.pollution) then return end
-  if qsignals.state.quality == nil then qsignals.state.quality="normal" end 
-  if qsignals.pollution.quality == nil then qsignals.pollution.quality="normal" end 
+  qsignals.on = core.aux.section.get_slot(3).value
+  qsignals.off = core.aux.section.get_slot(4).value
+  if not (qsignals.state and qsignals.pollution and qsignals.on and qsignals.off) then return end
+
+  for _,sign in pairs(qsignals) do
+    if sign.quality == nil then sign.quality="normal" end 
+  end
 
   gui.circuit_container = flib.add(gui.frames.bpio_tabbed_pane,
   {
@@ -539,6 +556,38 @@ function create_circuit_tab(gui,core)
         name = "bpio-pollution-signal",
         elem_type = "signal",
         signal = qsignals.pollution
+      },
+    },
+    {
+      type = "flow",
+      direction = "horizontal",
+      {
+        type = "label",
+        name = "circuit_label",
+        caption = {"gui-element.bpio-circuit-on-label" },
+        style_mods = { top_margin = 10 }
+      },
+      {
+        type = "choose-elem-button",
+        name = "bpio-on-signal",
+        elem_type = "signal",
+        signal = qsignals.on
+      },
+    },
+    {
+      type = "flow",
+      direction = "horizontal",
+      {
+        type = "label",
+        name = "circuit_label",
+        caption = {"gui-element.bpio-circuit-off-label" },
+        style_mods = { top_margin = 10 }
+      },
+      {
+        type = "choose-elem-button",
+        name = "bpio-off-signal",
+        elem_type = "signal",
+        signal = qsignals.off
       },
     },
     { type = "empty-widget", style = "entity_frame_filler" }

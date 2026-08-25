@@ -1,7 +1,21 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.11
 Date: ????
+  Major Features:
+    - You can now configure the item and pollution; or damage punishments with a runtime setting
+    - Added ability to turn off/on blueprints based on circuit conditions.
+  Minor Features:
+    - Added monochromatic colliders option.
+    - Added blueprint quick button to the control tab
   Changes:
+    - Stopped colliding with resources
+    - Upped checks seconds upper bound to 5 minutes.
+    - Changed how pollution gets counted from the surface to the statistics. Now pollution won't leak away.
+  Bugfixes:
+    - Fixed a bug that caused simulations to be done in half the time they should have.
+    - Listen to textboxes on the sliders next to them
+    - Fixed a bug where mining a booting or on core would crash the game.
+    - Fixed the intervals betweens checks in the on state not being the duration they should have
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.10
 Date: 2026-08-23
@@ -28,7 +42,7 @@ Date: 2026-08-22
 Version: 1.0.6
 Date: 2026-08-22
   Changes:
-    - Whole architecture rewrite. Please report any new bugs please
+    - Whole architecture rewrite. Please report any new bugs
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.5
 Date: 2026-08-17

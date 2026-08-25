@@ -6,6 +6,7 @@ kl = require("__klib__.runtime_stage")
 require("scripts/types")
 require("scripts/item_formats")
 require("scripts/simulation")
+require("scripts/work")
 require("scripts/core/data")
 require("scripts/core/world")
 require("scripts/core/filler")
@@ -44,7 +45,7 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, reorganize)
 
 --===== Entity Lifecycle
 
-script.on_event(defines.events.on_script_trigger_effect, on_bpio_created)
+script.on_event(defines.events.on_script_trigger_effect, on_bpio_created_or_wired)
 
 script.on_event(defines.events.on_player_mined_entity, on_bpio_mined,bpio_filter)
 script.on_event(defines.events.on_robot_mined_entity, on_bpio_mined,bpio_filter)
@@ -73,6 +74,8 @@ script.on_event(defines.events.on_gui_click, handle_buttons)
 
 script.on_event(defines.events.on_gui_value_changed, handle_sliders)
 
+script.on_event(defines.events.on_gui_text_changed, handle_textboxes)
+
 script.on_event(defines.events.on_gui_selection_state_changed, bpio_sprites)
 
 script.on_event(defines.events.on_gui_inventory_action, inventory_interaction)
@@ -97,6 +100,7 @@ local function on_tick(event)
     local dicts = storage.dictionary
     if not dicts then return end
     local core =  dicts.core[id_core]
+    if not core then return end
 
     if core.state.status == "booting" then
       local todo = core.state.sim_lock
@@ -212,7 +216,7 @@ local function on_tick(event)
             surface_recall(core)
           end
         else
-          local time_slice = kl.get_or_set(storage.queue,clock+5)
+          local time_slice = kl.get_or_set(storage.queue,clock+BAR_FREQUENCY)
           time_slice[#time_slice+1] = id_core
         end
       end
@@ -224,7 +228,14 @@ local function on_tick(event)
           )
         core.data.history[#core.data.history] = add_item_lists(core.data.history[#core.data.history],stolen_goods)
         core.data.input = as_item_quality_count(core.data.history[#core.data.history])
-        core.data.pollution = sim.surface.get_total_pollution()
+        local pollution_stats = game.get_pollution_statistics(sim.surface)
+        local pollutants = pollution_stats.input_counts
+        local total_pollution = 0
+        for _,pol in pairs(pollutants) do
+          total_pollution = total_pollution + pol
+        end
+        core.data.pollution = total_pollution
+        pollution_stats.clear()
         core.state.sim_lock = nil
         core.state.check = 0
         core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=core.data.pollution*10,max=core.data.pollution*10})
@@ -254,7 +265,9 @@ local function on_tick(event)
           core.state.checks[core.state.check] = "y" 
         else
           core.state.checks[core.state.check] = "n"
-          core.ent.core.damage(10,"neutral",nil,nil,core.ent.core)
+          if settings.global["bpio-damage"].value then 
+            core.ent.core.damage(10,"neutral",nil,nil,core.ent.core) 
+          end
           if not is_valid_core(core,"both") then 
             gui_kick_everyone(core)
             core_die(core)
@@ -265,26 +278,28 @@ local function on_tick(event)
         core.aux.force.print("Core "..core.ids.core.." could not find it's history entry. It might have corrupted.")
       end
       
-      if core.state.check == core.state.check_info.amount then
-        for _,item_format in pairs(core.data.input) do
-          local actual_amount = core.inv.input.remove(item_format)
-          core.aux.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],-actual_amount)
-        end
+      if core.state.check == core.state.check_info.amount then    
         local every_check = true
         for _,check in pairs(core.state.checks) do
-          every_check = every_check and check == "y"
-        end
-        if every_check then
-          for _,item_format in pairs(core.data.output) do
-            local actual_amount = core.inv.output.insert(item_format)
-            core.aux.statistics.on_flow(item_format --[[@as FlowStatisticsID ]],actual_amount)
+          if check ~= "y" then
+            every_check = false
+            break
           end
         end
-        core.aux.surface.pollute(core.aux.position,core.data.pollution,core.ent.core)
+
+        if every_check or settings.global["bpio-consumption"].value then
+          bpio_charge(core)
+          core.aux.surface.pollute(core.aux.position,core.data.pollution,core.ent.core) 
+        end
+    
+        if every_check then  
+          bpio_pay(core)
+        end
+    
         core.state.check = 0
       end
       
-      local future_slice = kl.get_or_set(storage.queue,clock+30*60)
+      local future_slice = kl.get_or_set(storage.queue,clock+core.state.check_info.time*60)
       future_slice[#future_slice+1] = id_core
       redraw_everyone(core)
     end

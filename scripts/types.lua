@@ -1,4 +1,5 @@
 ---@alias checkStatus "?"|"y"|"n"
+---@alias corners "right-top"|"left-top"|"right-bottom"|"left-bottom"
 ---@alias LuaPlayerIndex uint32
 ---@alias coreID uint64
 ---@alias quality_name string
@@ -19,6 +20,7 @@
 ---@field building LuaEntity
 ---@field input LuaEntity
 ---@field output LuaEntity
+---@field trigger LuaEntity
 
 ---@class coreInventories
 ---@field blueprint LuaInventory
@@ -32,7 +34,7 @@
 ---@field properties table<LuaSurfacePropertyPrototype,double>
 ---@field rendering LuaRenderObject
 ---@field render_name string
----@field projector_direction "right-top"|"left-top"|"right-bottom"|"left-bottom"
+---@field projector_direction corners
 ---@field projection_box BoundingBox
 ---@field position MapPosition
 ---@field force LuaForce
