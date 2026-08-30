@@ -1,9 +1,5 @@
 
 local meld = require("meld")
-local pfix = "__blueprint_io__/graphics/"
-
-local height = 127
-local width = 156
 local scale = 8/10
 
 
