@@ -141,6 +141,7 @@ function handle_sliders(event)
   local time = event.element.name == "bpio-check-time-slider"
   local amount = event.element.name =="bpio-check-amount-slider"
   if not (time or amount) then return end
+  if not event.element.parent then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -164,6 +165,7 @@ function handle_sliders(event)
     side_box = event.element.parent["bpio-check-amount-box"]
     core.state.check_info.amount = event.element.slider_value 
   end
+  if not side_box then return end
   side_box.text = tostring(event.element.slider_value)
 end
 
@@ -173,7 +175,8 @@ end
 function handle_textboxes(event)
   local amount = event.element.name == "bpio-check-amount-box"
   local time = event.element.name == "bpio-check-time-box"
-  if (not (amount or time)) or event.element.text =="" then return end
+  if (not (amount or time)) or event.element.text == "" then return end
+  if not event.element.parent then return end
 
   local player = game.get_player(event.player_index)
   if not player then return end
@@ -192,6 +195,7 @@ function handle_textboxes(event)
   
   local side_slide
   local raw_number = tonumber(event.element.text)
+  if not raw_number then return end
   local refined_number
   if time then 
     side_slide = event.element.parent["bpio-check-time-slider"]
@@ -202,6 +206,7 @@ function handle_textboxes(event)
     refined_number = math.min(math.max(raw_number, 1), 10)
     core.state.check_info.amount = refined_number
   end
+  if not side_slide then return end
   event.element.text = tostring(refined_number)
   side_slide.slider_value = refined_number
 
@@ -236,15 +241,23 @@ function bpio_sprites(event)
   elseif sprite_id == 3 then
     sprite_name = "bpio-ai-trainer"
   end
-  local core_anim_status = core.state.status
-  if core_anim_status == "standby" or core_anim_status == "booting" then
-    core_anim_status = "off"
+
+  --[[This section was rewritten to appease the linter. 
+  When we copy core.state.status we get the value (a string)
+  and when we reasign it, the upstream string in the core isn't updated.
+  But I'll use another variable just to appease]]
+  local core_status = core.state.status
+  local core_anim
+  if core_status == "on" then
+    core_anim = "on"
+  else
+    core_anim = "off"
   end
-  core_anim_status = "-"..core_anim_status
+  core_anim = "-"..core_anim
   
   core.aux.render_name = sprite_name
   core.aux.rendering.destroy()
-  core.aux.rendering = rendering.draw_animation{animation=sprite_name..core_anim_status,target=core.ent.core, surface=core.aux.surface}
+  core.aux.rendering = rendering.draw_animation{animation=sprite_name..core_anim,target=core.ent.core, surface=core.aux.surface}
   
 
 end
@@ -295,6 +308,9 @@ function bpio_signals(event)
   core.aux.section.set_slot(where,{min=stale,max=stale,value=qsignal --[[@as SignalFilter]]})
 
   if (on and core.state.status ~= "on") or (off and core.state.status == "on") then
-    core.ent.trigger.get_or_create_control_behavior().circuit_condition = {first_signal = qsignal, comparator = "!=", constant=0}
+    local circuit_control = core.ent.trigger.get_or_create_control_behavior()
+    ---@cast circuit_control LuaLandMineControlBehavior
+    if not circuit_control then return end
+    circuit_control.circuit_condition = {first_signal = qsignal, comparator = "!=", constant=0} --[[@as CircuitConditionDefinition]]
   end
 end

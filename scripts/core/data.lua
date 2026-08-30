@@ -136,6 +136,7 @@ end
 function bpio_corners(core, target_size, direction)
   local bx = core.aux.position.x
   local by = core.aux.position.y
+  if not (bx and by) then return end
 
   local base = {}
   base["right-top"]    = { bx + 7, by - 7 }

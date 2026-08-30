@@ -80,6 +80,7 @@ function bpio_boot(core,event)
   if not (is_valid_blueprint and target_size and target_size.x and target_size.y) then return end
 
   local collider_corners = bpio_corners(core,target_size,core.aux.projector_direction)
+  ---@cast collider_corners BoundingBox
   local clear = bpio_interference(core,collider_corners)
   if not clear then return end
 

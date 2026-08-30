@@ -16,6 +16,7 @@ function booting_screen(gui,player,core)
   else
     target_zoom = 1
   end
+  if not core.sim.surface then return end
 
   gui.booting = flib.add(gui.master.mflow, {
     type = "frame",

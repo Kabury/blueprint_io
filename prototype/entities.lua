@@ -70,10 +70,10 @@ data:extend({meld.meld(table.deepcopy(data.raw["constant-combinator"]["constant-
 
 
 local circuit_connector = circuit_connector_definitions.create_single(
-  universal_connector_template,
+  universal_connector_template --[[@as lualib.connector_sprite_template]],
   { variation = 10, main_offset = util.by_pixel( -0.625,  166.25), shadow_offset = util.by_pixel( -0.625,  166.25), show_shadow = true })
 local building_connector = circuit_connector_definitions.create_single(
-  universal_connector_template,
+  universal_connector_template --[[@as lualib.connector_sprite_template]],
   { variation = 10, main_offset = util.by_pixel( 111.25, -8.25), shadow_offset = util.by_pixel( 111.25, -8.25), show_shadow = true })
 
 
@@ -110,7 +110,7 @@ meld.meld(core.building,
 })
 core.building.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 core.building.corpse=meld.delete()
-core.building.picture.layers[2]=meld.delete()
+core.building.picture.layers[2]=meld.delete() ---@diagnostic disable-line: inject-field
 
 meld.meld(core.input,
 {
@@ -120,7 +120,7 @@ meld.meld(core.input,
 })
 core.input.flags = meld.append({"no-automated-item-removal","not-blueprintable"})
 core.input.corpse=meld.delete()
-core.input.picture.layers[2]=meld.delete()
+core.input.picture.layers[2]=meld.delete() ---@diagnostic disable-line: inject-field
 
 meld.meld(core.output,
 {
@@ -130,15 +130,17 @@ meld.meld(core.output,
 })
 core.output.flags = meld.append({"no-automated-item-insertion","not-blueprintable"})
 core.output.corpse=meld.delete()
-core.output.picture.layers[2]=meld.delete()
+core.output.picture.layers[2]=meld.delete() ---@diagnostic disable-line: inject-field
 
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.building)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.input)})
 data:extend({meld.meld(table.deepcopy(data.raw["container"]["steel-chest"]),core.output)})
 
-data.raw.container["bpio-core-building"].minable.result=nil
-data.raw.container["bpio-core-input"].minable.result=nil
-data.raw.container["bpio-core-output"].minable.result=nil
+if (data.raw.container["bpio-core-building"].minable and data.raw.container["bpio-core-input"].minable and data.raw.container["bpio-core-output"].minable) then
+  data.raw.container["bpio-core-building"].minable.result=nil
+  data.raw.container["bpio-core-input"].minable.result=nil
+  data.raw.container["bpio-core-output"].minable.result=nil
+end
 
 local blueprintable = {}
 blueprintable.input = table.deepcopy(special_box)

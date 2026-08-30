@@ -79,12 +79,16 @@ function on_bpio_created_or_wired(event)
   section.set_slot(4,{value={type="virtual",name="shape-circle",quality="normal"},min=0,max=0})
   
   local trigger_behavior = trigger.get_or_create_control_behavior() 
-  local mine_red = trigger.get_wire_connector(defines.wire_connector_id.circuit_red)
-  local mine_green = trigger.get_wire_connector(defines.wire_connector_id.circuit_green)
-  local core_red =  core.get_wire_connector(defines.wire_connector_id.circuit_red)
-  local core_green = core.get_wire_connector(defines.wire_connector_id.circuit_green)
+  ---@cast trigger_behavior LuaLandMineControlBehavior
+  local mine_red = trigger.get_wire_connector(defines.wire_connector_id.circuit_red,true)
+  local mine_green = trigger.get_wire_connector(defines.wire_connector_id.circuit_green,true)
+  local core_red =  core.get_wire_connector(defines.wire_connector_id.circuit_red,true)
+  local core_green = core.get_wire_connector(defines.wire_connector_id.circuit_green,true)
+  if not (trigger_behavior and mine_red and mine_green and core_red and core_green) then return end
+
   mine_red.connect_to(core_red,false)
   mine_green.connect_to(core_green,false)
+  
   
   trigger_behavior.circuit_enable_disable = true
   trigger_behavior.circuit_condition = {first_signal = {type="virtual",name="signal-dot",quality="normal"}, comparator = "!=", constant=0}
@@ -159,7 +163,7 @@ function bpio_wire(event)
     name="bpio-land-mine",
     position={x=wcore.aux.position.x,y=wcore.aux.position.y},
     force=wcore.aux.force
-  }
+  } --[[@as LuaSurface.create_entity_param.land_mine]]
   if not new_trigger then return end
   storage.dictionary.core[wtrigger.unit_number]=nil
   wtrigger.destroy()
@@ -168,10 +172,13 @@ function bpio_wire(event)
   storage.dictionary.core[new_trigger.unit_number]=wcore
 
   local new_trigger_behavior = new_trigger.get_or_create_control_behavior() 
-  local new_mine_red = new_trigger.get_wire_connector(defines.wire_connector_id.circuit_red)
-  local new_mine_green = new_trigger.get_wire_connector(defines.wire_connector_id.circuit_green)
-  local wcore_red =  wcore.ent.core.get_wire_connector(defines.wire_connector_id.circuit_red)
-  local wcore_green = wcore.ent.core.get_wire_connector(defines.wire_connector_id.circuit_green)
+  ---@cast new_trigger_behavior LuaLandMineControlBehavior
+  local new_mine_red = new_trigger.get_wire_connector(defines.wire_connector_id.circuit_red, true)
+  local new_mine_green = new_trigger.get_wire_connector(defines.wire_connector_id.circuit_green, true)
+  local wcore_red =  wcore.ent.core.get_wire_connector(defines.wire_connector_id.circuit_red, true)
+  local wcore_green = wcore.ent.core.get_wire_connector(defines.wire_connector_id.circuit_green, true)
+  if not (new_trigger_behavior and new_mine_red and new_mine_green and wcore_red and wcore_green) then return end
+
   new_mine_red.connect_to(wcore_red,false)
   new_mine_green.connect_to(wcore_green,false)
   
@@ -191,7 +198,7 @@ function bpio_wire(event)
     new_listen = wcore.aux.section.get_slot(3).value
   end
 
-  new_trigger_behavior.circuit_condition = {first_signal = new_listen, comparator = "!=", constant=0}
+  new_trigger_behavior.circuit_condition = {first_signal = new_listen, comparator = "!=", constant=0} --[[@as CircuitConditionDefinition]]
 end
 
 

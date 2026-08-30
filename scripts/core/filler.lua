@@ -1,6 +1,6 @@
 ---@param core coreDict
 function fill_area_with_colliders(core)
-  if not (core.aux.projection_box.left_top.x and core.aux.projection_box.left_top.y and core.aux.projection_box.right_bottom.x and core.aux.projection_box.right_bottom.y) then return end  
+  if not (core.aux.projection_box.left_top and core.aux.projection_box.left_top.x and core.aux.projection_box.left_top.y and core.aux.projection_box.right_bottom and core.aux.projection_box.right_bottom.x and core.aux.projection_box.right_bottom.y) then return end  
   local width = core.aux.projection_box.right_bottom.x - core.aux.projection_box.left_top.x
   local height = core.aux.projection_box.right_bottom.y - core.aux.projection_box.left_top.y
 

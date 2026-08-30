@@ -105,6 +105,7 @@ local function on_tick(event)
     if core.state.status == "booting" then
       local todo = core.state.sim_lock
       local sim = core.sim
+      if not (sim.surface and sim.force and sim.plan_memory) then goto next_core end
       if todo == "build_ghosts" then
         local blueprint = core.inv.blueprint[1]
         local ghosts = blueprint.build_blueprint{surface=sim.surface,force=sim.force, position={0,0}}
@@ -230,7 +231,7 @@ local function on_tick(event)
         core.data.input = as_item_quality_count(core.data.history[#core.data.history])
         local pollution_stats = game.get_pollution_statistics(sim.surface)
         local pollutants = pollution_stats.input_counts
-        local total_pollution = 0
+        local total_pollution = 0 --[[@as number]]
         for _,pol in pairs(pollutants) do
           total_pollution = total_pollution + pol
         end
@@ -238,7 +239,7 @@ local function on_tick(event)
         pollution_stats.clear()
         core.state.sim_lock = nil
         core.state.check = 0
-        core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=core.data.pollution*10,max=core.data.pollution*10})
+        core.aux.section.set_slot(2,{value=core.aux.section.get_slot(2).value,min=math.floor(core.data.pollution*10),max=math.floor(core.data.pollution*10)})
         surface_shutdown(core)
         redraw_everyone(core)
       end
