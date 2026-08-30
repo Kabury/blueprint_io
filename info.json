@@ -9,7 +9,7 @@
     "+ kry-solid-fluids"
   ],
   "name": "blueprint_io",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "title": "Blueprint I/O",
   "author": "Kabury",
   "description": "Simulate a blueprint inside a pocket dimension"
